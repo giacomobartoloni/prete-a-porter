@@ -36,14 +36,16 @@ curl -X POST http://localhost:8001/ \
 
 ```bash
 # All tests
-pytest packages/liturgy-agent/tests/
+cd packages/liturgy-agent && uv run python -m pytest -v
 
 # Specific module
-pytest packages/liturgy-agent/tests/test_cache.py
+cd packages/liturgy-agent && uv run python -m pytest tests/test_agent.py -v
 
 # With coverage
-pytest --cov=packages.liturgy-agent.src.liturgy_agent packages/liturgy-agent/tests/
+cd packages/liturgy-agent && uv run python -m pytest --cov=src/liturgy_agent tests/
 ```
+
+Test files: `test_agent.py`, `test_integration.py`, `test_main.py`.
 
 ## Dependencies
 
