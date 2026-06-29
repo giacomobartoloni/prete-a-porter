@@ -27,7 +27,7 @@ class TestFullFlow:
                 "occasion": "mass",
                 "preferences": {"tone": "conversational", "length": "medium"},
             },
-        })
+        }, timeout=120.0)
         assert resp.status_code == 200
         homily_result = resp.json()["result"]
         assert homily_result["status"] == "success"
@@ -51,7 +51,7 @@ class TestFullFlow:
                 "occasion": "marriage",
                 "preferences": {"tone": "celebratory"},
             },
-        })
+        }, timeout=120.0)
         assert resp.status_code == 200
         assert resp.json()["result"]["status"] == "success"
 

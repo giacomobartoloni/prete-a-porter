@@ -15,6 +15,28 @@ import pytest
 PROJECT_ROOT = os.path.normpath(os.path.join(os.path.dirname(__file__), "../.."))
 
 
+def _load_env():
+    """Load .env file so test helpers use the same secrets as Docker containers."""
+    env_path = os.path.join(PROJECT_ROOT, ".env")
+    if not os.path.exists(env_path):
+        return
+    with open(env_path) as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            if "=" not in line:
+                continue
+            key, _, value = line.partition("=")
+            key = key.strip()
+            value = value.strip().strip("'\"")
+            if key and key not in os.environ:
+                os.environ[key] = value
+
+
+_load_env()
+
+
 def pytest_addoption(parser):
     parser.addoption(
         "--no-docker",

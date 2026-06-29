@@ -124,7 +124,7 @@ class HomilyAgentHandler:
         final_state = await self.graph.ainvoke(graph_state)
         homily_state = final_state["homily_state"]
 
-        if homily_state.error and intent == "generate":
+        if homily_state.error:
             raise RuntimeError(homily_state.error)
 
         return {

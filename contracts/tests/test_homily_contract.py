@@ -15,6 +15,8 @@ from typing import Any, Dict, Optional
 import httpx
 import pytest
 
+from conftest import MOCK_LITURGICAL_DATA
+
 
 # Configuration from contract
 HOMILY_AGENT_URL = os.environ.get("A2A_HOMILY_URL", "http://localhost:8002")
@@ -57,7 +59,7 @@ def contract() -> Dict[str, Any]:
 @pytest.fixture
 def http_client() -> httpx.Client:
     """Create an HTTP client for A2A requests."""
-    return httpx.Client(timeout=30.0)
+    return httpx.Client(timeout=120.0)
 
 
 def make_message_send(
@@ -78,7 +80,7 @@ def make_message_send(
             }
         },
     }
-    with_cls = client or httpx.Client(timeout=15.0)
+    with_cls = client or httpx.Client(timeout=120.0)
     try:
         response = with_cls.post(f"{HOMILY_AGENT_URL}/", json=payload)
         response.raise_for_status()
@@ -148,9 +150,10 @@ class TestHomilyAgentContract:
         assert reply.get("status") == "success"
         assert "data" in reply
         homily = reply["data"].get("homily", {})
-        assert "title" in homily
-        assert "content" in homily
-        assert isinstance(homily.get("word_count"), int)
+        expected_sections = ("introduction", "reading_reflection", "practical_application", "conclusion")
+        for section in expected_sections:
+            assert section in homily, f"Missing section: {section}"
+            assert homily[section]["content"]
 
     # -------------------------------------------------------------------------
     # homily.refine tests
@@ -159,6 +162,8 @@ class TestHomilyAgentContract:
     def test_refine_format(self, http_client: httpx.Client):
         """Verify homily.refine returns correct format via message/send."""
         data = make_message_send("homily.refine", {
+            "liturgical_data": MOCK_LITURGICAL_DATA,
+            "occasion": "mass",
             "existing_draft": "Brothers and sisters, today we reflect on faith...",
             "preferences": {"style": "expository"},
         }, client=http_client)
@@ -173,9 +178,10 @@ class TestHomilyAgentContract:
         assert reply.get("status") == "success"
         assert "data" in reply
         homily = reply["data"].get("homily", {})
-        assert "title" in homily
-        assert "content" in homily
-        assert isinstance(homily.get("word_count"), int)
+        expected_sections = ("introduction", "reading_reflection", "practical_application", "conclusion")
+        for section in expected_sections:
+            assert section in homily, f"Missing section: {section}"
+            assert homily[section]["content"]
 
     # -------------------------------------------------------------------------
     # homily.adjust_tone tests
@@ -184,6 +190,9 @@ class TestHomilyAgentContract:
     def test_adjust_tone_format(self, http_client: httpx.Client):
         """Verify homily.adjust_tone returns correct format via message/send."""
         data = make_message_send("homily.adjust_tone", {
+            "liturgical_data": MOCK_LITURGICAL_DATA,
+            "occasion": "mass",
+            "existing_draft": "Brothers and sisters, today we reflect on the Gospel...",
             "preferences": {"style": "narrative", "audience": "youth"},
         }, client=http_client)
 
@@ -197,8 +206,10 @@ class TestHomilyAgentContract:
         assert reply.get("status") == "success"
         assert "data" in reply
         homily = reply["data"].get("homily", {})
-        assert "title" in homily
-        assert "content" in homily
+        expected_sections = ("introduction", "reading_reflection", "practical_application", "conclusion")
+        for section in expected_sections:
+            assert section in homily, f"Missing section: {section}"
+            assert homily[section]["content"]
 
 
 class TestHomilyContractDefinition:

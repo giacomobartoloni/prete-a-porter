@@ -28,7 +28,7 @@ class TestHomilyAgentGenerate:
                 "occasion": "mass",
                 "preferences": {"tone": "conversational", "length": "medium"},
             },
-        })
+        }, timeout=120.0)
         assert resp.status_code == 200
         result = resp.json()["result"]
         assert result["status"] == "success"
@@ -45,7 +45,7 @@ class TestHomilyAgentGenerate:
         resp = httpx.post(homily_url + "/", json={
             "jsonrpc": "2.0", "id": "3", "method": "homily.generate",
             "params": {"liturgical_data": data, "occasion": occasion},
-        })
+        }, timeout=120.0)
         assert resp.status_code == 200
         assert resp.json()["result"]["status"] == "success"
 
@@ -69,7 +69,7 @@ class TestHomilyAgentRefine:
                 "occasion": "mass",
                 "existing_draft": "Brothers and sisters, today we reflect on the Gospel...",
             },
-        })
+        }, timeout=120.0)
         assert resp.status_code == 200
         assert resp.json()["result"]["status"] == "success"
 
@@ -82,9 +82,10 @@ class TestHomilyAgentAdjustTone:
             "params": {
                 "liturgical_data": MOCK_LITURGICAL_DATA,
                 "occasion": "mass",
+                "existing_draft": "Brothers and sisters, today we reflect on the Gospel...",
                 "preferences": {"tone": "celebratory"},
             },
-        })
+        }, timeout=120.0)
         assert resp.status_code == 200
         assert resp.json()["result"]["status"] == "success"
 

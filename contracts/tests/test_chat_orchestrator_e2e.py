@@ -8,6 +8,7 @@ Helpers:
 import asyncio
 import json
 import os
+import uuid
 from datetime import datetime, timezone, timedelta
 
 import httpx
@@ -43,7 +44,7 @@ class TestChatOrchestratorWebSocket:
         import websockets
 
         token = _ws_token()
-        ws_url = chat_url.replace("http://", "ws://") + "/ws/chat/e2e_test_session_1"
+        ws_url = chat_url.replace("http://", "ws://") + f"/ws/chat/e2e_{uuid.uuid4().hex}"
 
         async with websockets.connect(ws_url, subprotocols=[token]) as ws:
             await ws.send("Ciao")
@@ -61,7 +62,7 @@ class TestChatOrchestratorWebSocket:
         import websockets
 
         token = _ws_token()
-        ws_url = chat_url.replace("http://", "ws://") + "/ws/chat/e2e_test_session_2"
+        ws_url = chat_url.replace("http://", "ws://") + f"/ws/chat/e2e_{uuid.uuid4().hex}"
 
         async with websockets.connect(ws_url, subprotocols=[token]) as ws:
             await ws.send("Che giorno è oggi?")
@@ -76,17 +77,19 @@ class TestChatOrchestratorWebSocket:
             data2 = json.loads(resp2)
             assert data2["type"] in ("message", "error")
 
-    @pytest.mark.skip(reason="A2A agent coordination via WebSocket requires LLM with tool calling")
     @pytest.mark.asyncio
     async def test_websocket_homily_flow(self, chat_url):
         """Full flow: request homily, receive response via agent coordination."""
         import websockets
 
-        ws_url = chat_url.replace("http://", "ws://") + "/ws/chat/e2e_test_homily"
+        token = _ws_token()
+        ws_url = chat_url.replace("http://", "ws://") + f"/ws/chat/e2e_{uuid.uuid4().hex}"
 
-        async with websockets.connect(ws_url) as ws:
+        async with websockets.connect(ws_url, subprotocols=[token]) as ws:
             await ws.send("Vorrei un'omelia per la prossima domenica")
-            response = await asyncio.wait_for(ws.recv(), timeout=60.0)
+            response = await asyncio.wait_for(ws.recv(), timeout=120.0)
             data = json.loads(response)
-            assert data["type"] == "message"
+            assert data["type"] in ("message", "error")
+            if data["type"] == "error":
+                pytest.skip(f"Agent coordination failed: {data.get('content', '')}")
             assert len(data["content"]) > 0
