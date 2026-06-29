@@ -1,0 +1,224 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&family=Playfair+Display:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap');
+@import "tailwindcss";
+@plugin "@tailwindcss/typography";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+  /* Typography — Font Families */
+  /* Inter — All UI chrome (nav, buttons, body copy, captions, links) */
+  --font-sans: 'Inter', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-inter: 'Inter', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  /* Domaine substitute — Display serif for hero statements */
+  --font-serif: 'Playfair Display', Georgia, Cambria, "Times New Roman", Times, serif;
+  --font-domaine: 'Playfair Display', Georgia, Cambria, "Times New Roman", Times, serif;
+  /* CommitMono substitute — Code, badge labels, terminal snippets */
+  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  --font-commitmono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+
+  /* Type Scale — Resend */
+  /* caption (12px / 1.33) */
+  --text-xs: 12px;
+  --text-xs--line-height: 1.33;
+  /* body-sm (14px / 1.43) */
+  --text-sm: 14px;
+  --text-sm--line-height: 1.43;
+  /* body (16px / 1.5) */
+  --text-base: 16px;
+  --text-base--line-height: 1.5;
+  /* subheading (18px / 1.6) */
+  --text-lg: 18px;
+  --text-lg--line-height: 1.6;
+  /* heading-sm (20px / 1.3) */
+  --text-xl: 20px;
+  --text-xl--line-height: 1.3;
+  /* heading (24px / 1.33) */
+  --text-2xl: 24px;
+  --text-2xl--line-height: 1.33;
+  /* heading-lg (56px / 1 / -2.8px) */
+  --text-heading-lg: 56px;
+  --text-heading-lg--line-height: 1;
+  --text-heading-lg--letter-spacing: -2.8px;
+  /* display (96px / 1 / -0.96px) */
+  --text-display: 96px;
+  --text-display--line-height: 1;
+  --text-display--letter-spacing: -0.96px;
+
+  /* Font Weights */
+  --font-weight-regular: 400;
+  --font-weight-medium: 500;
+  --font-weight-semibold: 600;
+  --font-weight-bold: 700;
+
+  /* Spacing (4px base) */
+  --spacing-4: 4px;
+  --spacing-8: 8px;
+  --spacing-12: 12px;
+  --spacing-16: 16px;
+  --spacing-20: 20px;
+  --spacing-24: 24px;
+  --spacing-28: 28px;
+  --spacing-32: 32px;
+  --spacing-40: 40px;
+  --spacing-48: 48px;
+  --spacing-64: 64px;
+  --spacing-80: 80px;
+  --spacing-96: 96px;
+  --spacing-104: 104px;
+  --spacing-144: 144px;
+
+  /* Border Radius */
+  --radius-md: 6px;
+  --radius-lg: 10px;
+  --radius-2xl: 16px;
+  --radius-3xl: 24px;
+
+  /* Shadows */
+  --shadow-subtle: rgba(176, 199, 217, 0.145) 0px 0px 0px 1px;
+  --shadow-subtle-2: rgb(0, 0, 0) 0px 0px 0px 8px;
+  --shadow-subtle-3: rgba(0, 0, 0, 0.1) 0px 1px 3px 0px, rgba(0, 0, 0, 0.1) 0px 1px 2px -1px;
+
+  /* Semantic Color Tokens (point to CSS variables) */
+  --color-bg-canvas: var(--bg-canvas);
+  --color-bg-raised: var(--bg-raised);
+  --color-bg-card: var(--bg-card);
+  --color-bg-overlay: var(--bg-overlay);
+  --color-text-primary: var(--text-primary);
+  --color-text-secondary: var(--text-secondary);
+  --color-text-tertiary: var(--text-tertiary);
+  --color-text-muted: var(--text-muted);
+  --color-border: var(--border);
+  --color-border-subtle: var(--border-subtle);
+  --color-accent: var(--accent);
+  --color-accent-violet: var(--accent-violet);
+  --color-accent-blue: var(--accent-blue);
+  --color-success: var(--success);
+  --color-danger: var(--danger);
+  --color-warning: var(--warning);
+  --color-info: var(--info);
+
+  /* Legacy liturgy palette — kept for backward compat of light mode*/
+  --color-liturgy-50: #fdf8f0;
+  --color-liturgy-100: #f9eddb;
+  --color-liturgy-200: #f2d8b0;
+  --color-liturgy-300: #e9bd7c;
+  --color-liturgy-400: #e0a34e;
+  --color-liturgy-500: #d4892e;
+  --color-liturgy-600: #c06e22;
+  --color-liturgy-700: #a0531e;
+  --color-liturgy-800: #82431f;
+  --color-liturgy-900: #6a381c;
+  --color-liturgy-950: #3a1b0c;
+
+  --color-violet-50: #f5f0ff;
+  --color-violet-100: #ede1ff;
+  --color-violet-200: #dcc3ff;
+  --color-violet-300: #c29bff;
+  --color-violet-400: #a568ff;
+  --color-violet-500: #8b3aff;
+  --color-violet-600: #7c1dff;
+  --color-violet-700: #6d0ef7;
+  --color-violet-800: #5b0ad0;
+  --color-violet-900: #4c0daa;
+  --color-violet-950: #2d0674;
+}
+
+/* Light mode defaults — warm liturgical palette*/
+:root {
+  --bg-canvas: #fdf8f0;
+  --bg-raised: #ffffff;
+  --bg-card: #ffffff;
+  --bg-overlay: #f9eddb;
+  --text-primary: #3a1b0c;
+  --text-secondary: #82431f;
+  --text-tertiary: #a0531e;
+  --text-muted: #d4892e;
+  --border: #f2d8b0;
+  --border-subtle: #e9bd7c;
+  --accent: #7c1dff;
+  --accent-violet: #8b3aff;
+  --accent-blue: #3b9eff;
+  --success: #22c55e;
+  --danger: #ef4444;
+  --warning: #f59e0b;
+  --info: #3b9eff;
+
+  /* Typography prose colors — light mode */
+  --tw-prose-body: #3a1b0c;
+  --tw-prose-headings: #3a1b0c;
+  --tw-prose-links: #7c1dff;
+  --tw-prose-bold: #3a1b0c;
+  --tw-prose-counters: #82431f;
+  --tw-prose-bullets: #f2d8b0;
+  --tw-prose-hr: #f2d8b0;
+  --tw-prose-quotes: #3a1b0c;
+  --tw-prose-quote-borders: #7c1dff;
+  --tw-prose-captions: #82431f;
+  --tw-prose-code: #3a1b0c;
+  --tw-prose-pre-code: #a1a4a5;
+  --tw-prose-pre-bg: #1b1b1b;
+  --tw-prose-th-borders: #f2d8b0;
+  --tw-prose-td-borders: #e9bd7c;
+}
+
+/* Dark mode — Resend obsidian palette */
+.dark {
+  --bg-canvas: #000000;
+  --bg-raised: #0b0e14;
+  --bg-card: #0b0e14;
+  --bg-overlay: #1b1b1b;
+  --text-primary: #e3e3e3;
+  --text-secondary: #a1a4a5;
+  --text-tertiary: #6c6c6c;
+  --text-muted: #6e727a;
+  --border: #292d30;
+  --border-subtle: #464a4d;
+  --accent: #9281f7;
+  --accent-violet: #9281f7;
+  --accent-blue: #3b9eff;
+  --success: #3ad389;
+  --danger: #ff9592;
+  --warning: #ffca16;
+  --info: #70b8ff;
+}
+
+/* Override prose dark colors — must be unlayered to beat typography plugin's unlayered CSS */
+.dark .prose {
+  --tw-prose-body: #e3e3e3;
+  --tw-prose-headings: #e3e3e3;
+  --tw-prose-links: rgb(146, 129, 247);
+  --tw-prose-bold: #e3e3e3;
+  --tw-prose-counters: #a1a4a5;
+  --tw-prose-bullets: #292d30;
+  --tw-prose-hr: #292d30;
+  --tw-prose-quotes: #e3e3e3;
+  --tw-prose-quote-borders: rgb(146, 129, 247);
+  --tw-prose-captions: #a1a4a5;
+  --tw-prose-code: #e3e3e3;
+  --tw-prose-pre-code: #a1a4a5;
+  --tw-prose-pre-bg: #0b0e14;
+  --tw-prose-th-borders: #292d30;
+  --tw-prose-td-borders: #464a4d;
+}
+
+/* Subtle rim light to separate black logo from dark background */
+.dark .logo-glow {
+  filter: drop-shadow(0 0 2px rgba(255, 255, 255, 0.1));
+}
+
+@layer base {
+  body {
+    margin: 0;
+    padding: 0;
+    background-color: var(--bg-canvas);
+    color: var(--text-primary);
+    font-family: var(--font-inter);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  h1, h2, h3, h4 {
+    font-family: var(--font-serif);
+  }
+
+}

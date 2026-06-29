@@ -1,0 +1,48 @@
+# Homily Agent Dockerfile
+# HTTP-only A2A server on port 8002
+
+FROM python:3.12-slim AS base
+
+# Install UV for fast dependency management
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+
+# Set environment variables
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    UV_SYSTEM_PYTHON=1
+
+# Set working directory
+WORKDIR /app
+
+# Stage 1: Copy a2a-protocol dependency (needed for local package build)
+COPY packages/a2a-protocol /app/packages/a2a-protocol
+
+# Copy contract file for runtime agent metadata
+COPY contracts/homily-agent-contract.json /app/contracts/homily-agent-contract.json
+
+# Stage 2: Copy homily-agent dependency files (for layer caching)
+COPY packages/homily-agent/pyproject.toml /app/packages/homily-agent/
+COPY packages/homily-agent/uv.lock /app/packages/homily-agent/
+
+# Stage 3: Set working directory
+WORKDIR /app/packages/homily-agent
+
+# Stage 4: Install dependencies (cached if pyproject.toml/uv.lock unchanged)
+RUN uv sync --frozen --no-install-project
+
+# Stage 5: Copy homily-agent source code (invalidates only this layer when code changes)
+COPY packages/homily-agent /app/packages/homily-agent
+
+# Stage 7: Install project
+RUN uv sync --frozen
+
+# Expose HTTP port
+EXPOSE 8002
+
+# Health check for HTTP endpoint
+# Uses JSON-RPC 2.0 ping method with uv run to access venv
+HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
+    CMD uv run python -c "import httpx; r = httpx.post('http://localhost:8002/a2a', json={'jsonrpc': '2.0', 'id': 'health', 'method': 'agent.ping', 'params': {}}, timeout=5.0); exit(0 if r.status_code == 200 and r.json().get('result', {}).get('status') == 'pong' else 1)"
+
+# Set entry point for HTTP server
+ENTRYPOINT ["uv", "run", "python", "-m", "homily_agent.main", "--port", "8002"]

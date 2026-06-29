@@ -1,0 +1,174 @@
+{
+  "common": {
+    "app_title": "Prete-a-porter",
+    "app_description": "The ghostwriter for a perfect homily"
+  },
+  "auth": {
+    "login": {
+      "title": "Welcome Back",
+      "subtitle": "Sign in to prepare your homily",
+      "email_label": "Email",
+      "email_password_required": "Enter email and password",
+      "email_placeholder": "Email",
+      "error_retry": "An error occurred. Please try again.",
+      "invalid_credentials": "Invalid credentials",
+      "password_label": "Password",
+      "password_placeholder": "Password",
+      "submit": "Sign In",
+      "loading": "Signing in...",
+      "no_account": "Don't have an account?",
+      "register_link": "Register"
+    },
+    "register": {
+      "title": "Create Account",
+      "subtitle": "Register to get started",
+      "confirm_password_label": "Confirm Password",
+      "confirm_password_placeholder": "Repeat password",
+      "email_label": "Email",
+      "email_placeholder": "Email",
+      "email_required": "Enter your email",
+      "error_retry": "An error occurred. Please try again.",
+      "has_account": "Already have an account?",
+      "invalid_email": "Enter a valid email address",
+      "loading": "Creating account...",
+      "login_link": "Sign In",
+      "name_label": "Name",
+      "name_placeholder": "Name",
+      "name_required": "Enter your name",
+      "password_label": "Password",
+      "password_min_length": "Password must be at least 6 characters",
+      "password_placeholder": "Password",
+      "password_required": "Enter your password",
+      "passwords_mismatch": "Passwords do not match",
+      "registration_complete": "Registration complete. Try signing in.",
+      "registration_failed": "Registration failed",
+      "submit": "Create Account"
+    },
+    "error": {
+      "title": "Authentication Error",
+      "description": "An error occurred during authentication.",
+      "back": "Back to Sign In",
+      "try_again": "Try Again"
+    },
+    "logout": {
+      "button": "Sign Out",
+      "signing_out": "Signing out..."
+    }
+  },
+  "chat": {
+    "input_placeholder": "Type your message...",
+    "start_conversation": "Start a conversation...",
+    "generating": "Generating...",
+    "connected": "Connected",
+    "disconnected": "Disconnected",
+    "auth_error": "Authentication error. Please reload the page.",
+    "session_expired": "Session expired. Please reload the page.",
+    "reload": "Reload",
+    "empty_state_description": "Ask me for today's readings, help preparing a homily, or liturgical information for your celebration.",
+    "today_readings": "Today's Readings",
+    "today_readings_desc": "Readings of the day",
+    "sunday_homily": "Sunday Homily",
+    "sunday_homily_desc": "Prepare Sunday's homily",
+    "wedding_readings": "Wedding Readings",
+    "wedding_readings_desc": "For special celebrations",
+    "attach_file": "Attach file",
+    "record_voice": "Record voice message",
+    "stop": "Stop",
+    "send_message": "Send message",
+    "enter_to_send": "to send",
+    "shift_enter_newline": "for new line",
+    "empty_message": "Start a conversation...",
+    "generating_label": "Generating..."
+  },
+  "sidebar": {
+    "new_conversation": "New Conversation",
+    "today": "Today",
+    "yesterday": "Yesterday",
+    "no_conversations": "No conversations",
+    "theme": "Theme",
+    "logout": "Sign Out",
+    "collapse": "Collapse sidebar",
+    "expand": "Expand sidebar",
+    "delete_conversation": "Delete conversation",
+    "default_title": "New Conversation",
+    "user_fallback": "User"
+  },
+  "liturgy": {
+    "title": "Readings of the Day",
+    "first_reading": "First Reading",
+    "psalm": "Psalm",
+    "second_reading": "Second Reading",
+    "gospel": "Gospel",
+    "alleluia": "Alleluia",
+    "year": "Year",
+    "season": {
+      "Advent": "Advent",
+      "Christmas": "Christmas",
+      "Epiphany": "Epiphany",
+      "Lent": "Lent",
+      "Easter": "Easter",
+      "Ordinary": "Ordinary Time"
+    },
+    "occasion": {
+      "mass": "Holy Mass",
+      "marriage": "Marriage",
+      "baptism": "Baptism",
+      "funeral": "Funeral"
+    },
+    "color": {
+      "green": "Green",
+      "purple": "Purple",
+      "white": "White",
+      "red": "Red",
+      "rose": "Rose"
+    }
+  },
+  "homily": {
+    "title": "Generated Homily",
+    "preferences": "Homily Preferences",
+    "target_audience": "Target Audience",
+    "tone": "Tone",
+    "length": "Length",
+    "themes": "Themes",
+    "metaphors": "Metaphors",
+    "parables": "Parables",
+    "sources": "Theological sources",
+    "occasion": {
+      "mass": "Mass",
+      "marriage": "Marriage",
+      "baptism": "Baptism",
+      "funeral": "Funeral"
+    },
+    "audience": {
+      "adults": "Adults",
+      "youth": "Youth",
+      "children": "Children",
+      "mixed": "Mixed"
+    },
+    "tone_options": {
+      "formal": "Formal",
+      "conversational": "Conversational",
+      "poetic": "Poetic",
+      "consolatory": "Consolatory",
+      "celebratory": "Celebratory"
+    },
+    "length_options": {
+      "short": "Short (5-7 min)",
+      "medium": "Medium (10-12 min)",
+      "long": "Long (15+ min)"
+    }
+  },
+  "tool_call": {
+    "pending": "Pending",
+    "running": "Running",
+    "completed": "Completed",
+    "error": "Error"
+  },
+  "locale": {
+    "switch_to": "Passa all'italiano",
+    "current": "English"
+  },
+  "messages": {
+    "unknown_type": "Unknown message type"
+  }
+}

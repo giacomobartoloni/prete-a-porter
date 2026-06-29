@@ -1,0 +1,174 @@
+{
+  "common": {
+    "app_title": "Prete-a-porter",
+    "app_description": "Il ghostwriter per un'omelia perfetta"
+  },
+  "auth": {
+    "login": {
+      "title": "Bentornato",
+      "subtitle": "Accedi per preparare la tua omelia",
+      "email_label": "Email",
+      "email_password_required": "Inserisci email e password",
+      "email_placeholder": "Email",
+      "error_retry": "Si è verificato un errore. Riprova.",
+      "invalid_credentials": "Credenziali non valide",
+      "password_label": "Password",
+      "password_placeholder": "Password",
+      "submit": "Accedi",
+      "loading": "Accesso in corso...",
+      "no_account": "Non hai un account?",
+      "register_link": "Registrati"
+    },
+    "register": {
+      "title": "Crea Account",
+      "subtitle": "Registrati per iniziare",
+      "confirm_password_label": "Conferma Password",
+      "confirm_password_placeholder": "Ripeti la password",
+      "email_label": "Email",
+      "email_placeholder": "Email",
+      "email_required": "Inserisci la tua email",
+      "error_retry": "Si è verificato un errore. Riprova.",
+      "has_account": "Hai già un account?",
+      "invalid_email": "Inserisci un indirizzo email valido",
+      "loading": "Creazione account...",
+      "login_link": "Accedi",
+      "name_label": "Nome",
+      "name_placeholder": "Nome",
+      "name_required": "Inserisci il tuo nome",
+      "password_label": "Password",
+      "password_min_length": "La password deve essere di almeno 6 caratteri",
+      "password_placeholder": "Password",
+      "password_required": "Inserisci la password",
+      "passwords_mismatch": "Le password non corrispondono",
+      "registration_complete": "Registrazione completata. Prova ad accedere.",
+      "registration_failed": "Registrazione fallita",
+      "submit": "Crea Account"
+    },
+    "error": {
+      "title": "Errore di Autenticazione",
+      "description": "Si è verificato un errore durante l'autenticazione.",
+      "back": "Torna al login",
+      "try_again": "Riprova"
+    },
+    "logout": {
+      "button": "Esci",
+      "signing_out": "Uscita in corso..."
+    }
+  },
+  "chat": {
+    "input_placeholder": "Scrivi il tuo messaggio...",
+    "start_conversation": "Inizia una conversazione...",
+    "generating": "Sto generando...",
+    "connected": "Connesso",
+    "disconnected": "Disconnesso",
+    "auth_error": "Errore di autenticazione. Ricarica la pagina.",
+    "session_expired": "Sessione scaduta. Ricarica la pagina.",
+    "reload": "Ricarica",
+    "empty_state_description": "Chiedimi letture del giorno, aiuto per preparare un'omelia, o informazioni liturgiche per la tua celebrazione.",
+    "today_readings": "Letture di oggi",
+    "today_readings_desc": "Leggi della messa del giorno",
+    "sunday_homily": "Omelia per domenica",
+    "sunday_homily_desc": "Prepara l'omelia domenicale",
+    "wedding_readings": "Letture nozze",
+    "wedding_readings_desc": "Per celebrazioni speciali",
+    "attach_file": "Allega file",
+    "record_voice": "Registra messaggio vocale",
+    "stop": "Interrompi",
+    "send_message": "Invia messaggio",
+    "enter_to_send": "per inviare",
+    "shift_enter_newline": "per nuova riga",
+    "empty_message": "Inizia una conversazione...",
+    "generating_label": "Sto generando..."
+  },
+  "sidebar": {
+    "new_conversation": "Nuova conversazione",
+    "today": "Oggi",
+    "yesterday": "Ieri",
+    "no_conversations": "Nessuna conversazione",
+    "theme": "Tema",
+    "logout": "Esci",
+    "collapse": "Collassa sidebar",
+    "expand": "Espandi sidebar",
+    "delete_conversation": "Elimina conversazione",
+    "default_title": "Nuova conversazione",
+    "user_fallback": "Utente"
+  },
+  "liturgy": {
+    "title": "Letture del Giorno",
+    "first_reading": "Prima Lettura",
+    "psalm": "Salmo",
+    "second_reading": "Seconda Lettura",
+    "gospel": "Vangelo",
+    "alleluia": "Alleluia",
+    "year": "Anno",
+    "season": {
+      "Advent": "Avvento",
+      "Christmas": "Natale",
+      "Epiphany": "Epifania",
+      "Lent": "Quaresima",
+      "Easter": "Pasqua",
+      "Ordinary": "Tempo Ordinario"
+    },
+    "occasion": {
+      "mass": "Santa Messa",
+      "marriage": "Matrimonio",
+      "baptism": "Battesimo",
+      "funeral": "Funerale"
+    },
+    "color": {
+      "green": "Verde",
+      "purple": "Viola",
+      "white": "Bianco",
+      "red": "Rosso",
+      "rose": "Rosa"
+    }
+  },
+  "homily": {
+    "title": "Omelia Generata",
+    "preferences": "Preferenze Omelia",
+    "target_audience": "Destinatari",
+    "tone": "Tono",
+    "length": "Durata",
+    "themes": "Temi",
+    "metaphors": "Metafore",
+    "parables": "Parabole",
+    "sources": "Fonti teologiche",
+    "occasion": {
+      "mass": "Messa",
+      "marriage": "Matrimonio",
+      "baptism": "Battesimo",
+      "funeral": "Funerale"
+    },
+    "audience": {
+      "adults": "Adulti",
+      "youth": "Giovani",
+      "children": "Bambini",
+      "mixed": "Misto"
+    },
+    "tone_options": {
+      "formal": "Formale",
+      "conversational": "Conversazionale",
+      "poetic": "Poetico",
+      "consolatory": "Consolatorio",
+      "celebratory": "Celebrativo"
+    },
+    "length_options": {
+      "short": "Breve (5-7 min)",
+      "medium": "Media (10-12 min)",
+      "long": "Lunga (15+ min)"
+    }
+  },
+  "tool_call": {
+    "pending": "In attesa",
+    "running": "In esecuzione",
+    "completed": "Completato",
+    "error": "Errore"
+  },
+  "locale": {
+    "switch_to": "Switch to English",
+    "current": "Italiano"
+  },
+  "messages": {
+    "unknown_type": "Messaggio non riconosciuto"
+  }
+}

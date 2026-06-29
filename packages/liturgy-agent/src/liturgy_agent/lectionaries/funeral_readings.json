@@ -1,0 +1,42 @@
+{
+  "funeral": {
+    "occasion_name": "Funeral Service",
+    "general_readings": [
+      {
+        "id": 1,
+        "reference": "Is 25:6,7b-9",
+        "text": "On this mountain the Lord of hosts will make for all peoples a feast of rich food, a feast of well-matured wines. He will swallow up on this mountain the covering that is cast over all peoples; the veil that is spread over all nations; he will swallow up death forever. Then the Lord God will wipe away the tears from all faces, and the disgrace of his people he will take away from all the earth.",
+        "type": "First",
+        "theme": "Hope in resurrection and eternal life"
+      },
+      {
+        "id": 2,
+        "reference": "Rm 6:9",
+        "text": "We know that Christ, being raised from the dead, will never die again. Death no longer has dominion over him. For the death he died, he died to sin, once for all; but the life he lives, he lives to God.",
+        "type": "Second",
+        "theme": "Resurrection through Christ"
+      },
+      {
+        "id": 3,
+        "reference": "Jn 11:25-26",
+        "text": "Jesus said to her, 'I am the resurrection and the life. Those who believe in me, even though they die, will live, and everyone who lives and believes in me will never die. Do you believe this?'",
+        "type": "Gospel",
+        "theme": "Jesus is the resurrection and the life"
+      },
+      {
+        "id": 4,
+        "reference": "1 Cor 13:4-7",
+        "text": "Love is patient; love is kind; love is not envious or boastful or arrogant or rude. It does not insist on its own way; it is not irritable or resentful; it does not rejoice in wrongdoing, but rejoices in the truth. It bears all things, believes all things, hopes all things, endures all things.",
+        "type": "First",
+        "theme": "Love transcends death"
+      },
+      {
+        "id": 5,
+        "reference": "Eph 3:14-19",
+        "text": "For this reason I bow my knees before the Father, from whom every family in heaven and on earth takes its name. I pray that, according to the riches of his glory, he may grant that you may be strengthened with might through his Spirit in your inner being.",
+        "type": "Second",
+        "theme": "Family unity in faith"
+      }
+    ]
+  }
+}

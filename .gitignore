@@ -1,0 +1,66 @@
+# Dependencies
+node_modules/
+
+# Generated
+/generated/prisma
+
+# Python
+__pycache__/
+*.py[oc]
+*.egg-info
+.eggs/
+build/
+dist/
+wheels/
+.venv/
+.venv
+
+# Environment variables
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Temporary files
+*.tmp
+*.swp
+
+# Test / Coverage
+.pytest_cache/
+htmlcov/
+.coverage
+.coverage.*
+coverage/
+
+# Database
+*.db
+*.db-shm
+*.db-wal
+
+# Runtime data (ChromaDB, etc.)
+data/
+
+# Validation artifacts
+validation_output.txt
+
+# Generated reports
+docs/code-review-report.html
+
+# Local git worktrees
+.worktrees/
+
+# Copyrighted content (download separately via support/download.sh)
+support/bibbia2008/
+support/catechismo/

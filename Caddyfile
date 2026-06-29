@@ -1,0 +1,16 @@
+# Prete-a-porter — Caddy reverse proxy
+# TLS automatico via Let's Encrypt per chat.prete-a-porter.dev
+# /ws/* → chat-orchestrator (WebSocket)
+# /*   → frontend (Next.js)
+
+chat.prete-a-porter.dev {
+	# WebSocket → chat-orchestrator
+	handle /ws/* {
+		reverse_proxy chat-orchestrator:8000
+	}
+
+	# Everything else → Next.js frontend
+	handle {
+		reverse_proxy frontend:3000
+	}
+}

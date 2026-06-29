@@ -1,0 +1,365 @@
+{
+  "name": "liturgy-agent",
+  "version": "0.1.0",
+  "transport": {
+    "type": "http",
+    "port": 8001,
+    "endpoint": "/a2a"
+  },
+  "protocol": {
+    "type": "jsonrpc",
+    "version": "2.0"
+  },
+  "methods": [
+    {
+      "name": "agent.ping",
+      "description": "Health check endpoint. Returns pong response with agent metadata.",
+      "params": {},
+      "returns": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "const": "pong",
+            "description": "Health check response status"
+          },
+          "agent": {
+            "type": "string",
+            "const": "liturgy_agent",
+            "description": "Agent identifier"
+          },
+          "version": {
+            "type": "string",
+            "description": "Agent version string"
+          }
+        },
+        "required": ["status", "agent", "version"]
+      },
+      "examples": {
+        "request": {
+          "jsonrpc": "2.0",
+          "id": "1",
+          "method": "agent.ping",
+          "params": {}
+        },
+        "response": {
+          "jsonrpc": "2.0",
+          "id": "1",
+          "result": {
+            "status": "pong",
+            "agent": "liturgy_agent",
+            "version": "1.0.0"
+          }
+        }
+      }
+    },
+    {
+      "name": "liturgy_agent.get_readings",
+      "description": "Get liturgical readings for a specific occasion and optional date. Returns readings from web scraping (for daily mass) or lectionary files (for special occasions).",
+      "params": {
+        "type": "object",
+        "properties": {
+          "occasion": {
+            "type": "string",
+            "description": "Occasion type for readings",
+            "enum": ["sunday", "mass", "weekday", "daily", "marriage", "baptism", "funeral"]
+          },
+          "date": {
+            "type": "string",
+            "format": "date",
+            "description": "Optional date in YYYY-MM-DD format. Defaults to current date if not provided."
+          }
+        },
+        "required": ["occasion"]
+      },
+      "returns": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": ["success", "error"],
+            "description": "Request status"
+          },
+          "data": {
+            "type": "object",
+            "description": "Readings data object (structure varies by occasion)",
+            "properties": {
+              "date": {
+                "type": "string",
+                "description": "Date of readings"
+              },
+              "occasion": {
+                "type": "string",
+                "description": "Occasion type"
+              },
+              "season": {
+                "type": "string",
+                "description": "Liturgical season (e.g., Lent, Easter)"
+              },
+              "color": {
+                "type": "string",
+                "description": "Liturgical color"
+              },
+              "year_cycle": {
+                "type": "string",
+                "description": "Liturgical year cycle (A, B, or C)"
+              },
+              "readings": {
+                "type": "object",
+                "description": "Reading objects keyed by type",
+                "properties": {
+                  "first_reading": {
+                    "type": "object",
+                    "properties": {
+                      "reference": { "type": "string" },
+                      "type": { "type": "string" },
+                      "text": { "type": "string" },
+                      "source": { "type": "string" }
+                    }
+                  },
+                  "psalm": {
+                    "type": "object",
+                    "properties": {
+                      "reference": { "type": "string" },
+                      "type": { "type": "string" },
+                      "text": { "type": "string" },
+                      "source": { "type": "string" }
+                    }
+                  },
+                  "second_reading": {
+                    "type": "object",
+                    "properties": {
+                      "reference": { "type": "string" },
+                      "type": { "type": "string" },
+                      "text": { "type": "string" },
+                      "source": { "type": "string" }
+                    }
+                  },
+                  "gospel": {
+                    "type": "object",
+                    "properties": {
+                      "reference": { "type": "string" },
+                      "type": { "type": "string" },
+                      "text": { "type": "string" },
+                      "source": { "type": "string" }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "source": {
+            "type": "string",
+            "enum": ["web", "cache", "lectionary"],
+            "description": "Data source"
+          },
+          "error": {
+            "type": "string",
+            "description": "Error message if status is 'error'"
+          },
+          "message": {
+            "type": "string",
+            "description": "Additional error context"
+          }
+        },
+        "required": ["status"]
+      },
+      "errors": [
+        {
+          "code": -32602,
+          "message": "Missing required parameter: occasion",
+          "condition": "occasion param not provided"
+        },
+        {
+          "code": -32602,
+          "message": "Invalid date format: {date}. Use YYYY-MM-DD",
+          "condition": "date param is not valid ISO format"
+        },
+        {
+          "code": -32602,
+          "message": "Unknown occasion: {occasion}. Valid options: sunday, mass, weekday, marriage, baptism, funeral",
+          "condition": "occasion not in valid enum"
+        }
+      ],
+      "examples": {
+        "request_daily_mass": {
+          "jsonrpc": "2.0",
+          "id": "2",
+          "method": "liturgy_agent.get_readings",
+          "params": {
+            "occasion": "mass",
+            "date": "2026-03-18"
+          }
+        },
+        "response_daily_mass": {
+          "jsonrpc": "2.0",
+          "id": "2",
+          "result": {
+            "status": "success",
+            "data": {
+              "date": "2026-03-18",
+              "occasion": "mass",
+              "season": "Lent",
+              "color": "Purple",
+              "year_cycle": "A",
+              "readings": {
+                "first_reading": {
+                  "reference": "Genesis 1:26-28, 31a",
+                  "type": "First",
+                  "text": "Then God said: Let us make human beings...",
+                  "source": "evangelizo.org"
+                },
+                "psalm": {
+                  "reference": "Psalm 128:1-2, 3, 4-5",
+                  "type": "Psalm",
+                  "text": "Blessed are all who fear the Lord...",
+                  "source": "evangelizo.org"
+                },
+                "gospel": {
+                  "reference": "John 15:9-12",
+                  "type": "Gospel",
+                  "text": "Jesus said to his disciples: As the Father loves me...",
+                  "source": "evangelizo.org"
+                }
+              }
+            },
+            "source": "web"
+          }
+        },
+        "request_marriage": {
+          "jsonrpc": "2.0",
+          "id": "3",
+          "method": "liturgy_agent.get_readings",
+          "params": {
+            "occasion": "marriage"
+          }
+        },
+        "response_marriage": {
+          "jsonrpc": "2.0",
+          "id": "3",
+          "result": {
+            "status": "success",
+            "data": {
+              "occasion_name": "marriage",
+              "general_readings": [
+                {
+                  "id": 1,
+                  "reference": "Mt 19:4-6",
+                  "text": "Jesus said...",
+                  "type": "Gospel",
+                  "theme": "Unity"
+                }
+              ]
+            },
+            "source": "lectionary"
+          }
+        }
+      }
+    },
+    {
+      "name": "liturgy_agent.get_lectionary",
+      "description": "Get lectionary options for a specific occasion. Returns available readings from pre-loaded lectionary files.",
+      "params": {
+        "type": "object",
+        "properties": {
+          "occasion": {
+            "type": "string",
+            "description": "Occasion type for lectionary lookup",
+            "enum": ["marriage", "baptism", "funeral"]
+          }
+        },
+        "required": ["occasion"]
+      },
+      "returns": {
+        "type": "object",
+        "properties": {
+          "occasion": {
+            "type": "string",
+            "description": "Occasion type requested"
+          },
+          "lectionary": {
+            "type": "object",
+            "description": "Lectionary data with available readings"
+          },
+          "readings_count": {
+            "type": "integer",
+            "description": "Number of readings available"
+          }
+        },
+        "required": ["occasion", "lectionary", "readings_count"]
+      },
+      "errors": [
+        {
+          "code": -32602,
+          "message": "Missing required parameter: occasion",
+          "condition": "occasion param not provided"
+        },
+        {
+          "code": -32602,
+          "message": "No lectionary found for occasion: {occasion}",
+          "condition": "occasion not found in lectionary files"
+        },
+        {
+          "code": -32603,
+          "message": "'LiturgyAgent' object has no attribute 'load_lectionary'",
+          "condition": "Known bug: method implementation incomplete"
+        }
+      ],
+      "examples": {
+        "request": {
+          "jsonrpc": "2.0",
+          "id": "4",
+          "method": "liturgy_agent.get_lectionary",
+          "params": {
+            "occasion": "marriage"
+          }
+        },
+        "response_success": {
+          "jsonrpc": "2.0",
+          "id": "4",
+          "result": {
+            "occasion": "marriage",
+            "lectionary": {
+              "occasion_name": "marriage",
+              "general_readings": [
+                {
+                  "id": 1,
+                  "reference": "Mt 19:4-6",
+                  "text": "Jesus said...",
+                  "type": "Gospel",
+                  "theme": "Unity"
+                }
+              ]
+            },
+            "readings_count": 1
+          }
+        },
+        "response_error": {
+          "jsonrpc": "2.0",
+          "id": "4",
+          "error": {
+            "code": -32603,
+            "message": "'LiturgyAgent' object has no attribute 'load_lectionary'"
+          }
+        }
+      },
+      "notes": [
+        "KNOWN BUG: This method currently fails with AttributeError due to missing 'load_lectionary' method in LiturgyAgent class.",
+        "The method '_load_lectionary' exists but 'load_lectionary' (without underscore) is called.",
+        "This should be fixed before production use."
+      ]
+    }
+  ],
+  "error_codes": {
+    "-32700": "Parse error - Invalid JSON received",
+    "-32600": "Invalid Request - JSON sent is not a valid Request object",
+    "-32601": "Method not found - Method does not exist",
+    "-32602": "Invalid params - Invalid method parameter(s)",
+    "-32603": "Internal error - Internal JSON-RPC error",
+    "-32000": "Agent not found",
+    "-32001": "Agent timeout",
+    "-32002": "Agent busy",
+    "-32003": "Transport error",
+    "-32004": "Serialization error"
+  }
+}

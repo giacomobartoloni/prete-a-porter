@@ -1,0 +1,104 @@
+name: Contract Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  contract-tests:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install UV
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: "latest"
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install a2a-protocol package
+        working-directory: packages/a2a-protocol
+        run: uv sync
+
+      - name: Install liturgy-agent package
+        working-directory: packages/liturgy-agent
+        run: uv sync
+
+      - name: Install homily-agent package
+        working-directory: packages/homily-agent
+        run: uv sync
+
+      - name: Install contract test dependencies
+        working-directory: contracts
+        run: uv sync
+
+      - name: Start liturgy agent
+        working-directory: packages/liturgy-agent
+        run: |
+          uv run python -m liturgy_agent.main --port 8001 &
+          echo "LITURGY_PID=$!" >> $GITHUB_ENV
+        env:
+          # Use mock LLM if no API keys available
+          LITURGY_LLM_PROVIDER: mock
+
+      - name: Start homily agent
+        working-directory: packages/homily-agent
+        run: |
+          uv run python -m homily_agent.main --port 8002 &
+          echo "HOMILY_PID=$!" >> $GITHUB_ENV
+        env:
+          # Use mock LLM if no API keys available
+          HOMILY_LLM_PROVIDER: mock
+
+      - name: Wait for agents to be ready
+        run: |
+          echo "Waiting for liturgy agent on port 8001..."
+          for i in {1..30}; do
+            if curl -s http://localhost:8001/health > /dev/null 2>&1; then
+              echo "Liturgy agent is ready"
+              break
+            fi
+            sleep 1
+          done
+
+          echo "Waiting for homily agent on port 8002..."
+          for i in {1..30}; do
+            if curl -s http://localhost:8002/health > /dev/null 2>&1; then
+              echo "Homily agent is ready"
+              break
+            fi
+            sleep 1
+          done
+
+      - name: Run contract tests
+        working-directory: contracts
+        run: uv run pytest tests/ -v --junit-xml=test-results.xml
+        env:
+          A2A_LITURGY_URL: http://localhost:8001
+          A2A_HOMILY_URL: http://localhost:8002
+
+      - name: Upload test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: contract-test-results
+          path: contracts/test-results.xml
+          retention-days: 30
+
+      - name: Stop agents
+        if: always()
+        run: |
+          if [ -n "$LITURGY_PID" ]; then
+            kill $LITURGY_PID 2>/dev/null || true
+          fi
+          if [ -n "$HOMILY_PID" ]; then
+            kill $HOMILY_PID 2>/dev/null || true
+          fi

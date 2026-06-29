@@ -1,0 +1,28 @@
+{
+  "marriage": {
+    "occasion_name": "Wedding Ceremony",
+    "general_readings": [
+      {
+        "id": 1,
+        "reference": "Gn 2:18-24",
+        "text": "The Lord God said, 'It is not good for the man to be alone. I will make a helper suitable for him.' [...] For this reason a man will leave his father and mother and be united to his wife, and they will become one flesh.",
+        "type": "First",
+        "theme": "Unity of man and woman"
+      },
+      {
+        "id": 2,
+        "reference": "1 Jn 4:7-11",
+        "text": "Dear friends, let us love one another, for love comes from God. Everyone who loves has been born of God and knows God.",
+        "type": "Second",
+        "theme": "Love as divine origin"
+      },
+      {
+        "id": 3,
+        "reference": "Mt 22:35-40",
+        "text": "'Love the Lord your God with all your heart and with all your soul and with all your mind.' This is the first and greatest commandment. And the second is like it: 'Love your neighbor as yourself.'",
+        "type": "Gospel",
+        "theme": "Love as the greatest commandment"
+      }
+    ]
+  }
+}

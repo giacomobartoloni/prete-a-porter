@@ -1,0 +1,432 @@
+{
+  "name": "homily-agent",
+  "version": "0.1.0",
+  "description": "Homily generation agent for spiritual content creation",
+  "transport": {
+    "type": "http",
+    "port": 8002,
+    "endpoint": "/a2a"
+  },
+  "protocol": {
+    "type": "jsonrpc",
+    "version": "2.0"
+  },
+  "methods": [
+    {
+      "name": "agent.ping",
+      "description": "Health check endpoint to verify agent availability",
+      "params": {},
+      "returns": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "description": "Health status indicator",
+            "enum": ["ok", "pong"]
+          },
+          "agent": {
+            "type": "string",
+            "description": "Agent identifier",
+            "const": "homily_agent"
+          },
+          "version": {
+            "type": "string",
+            "description": "Agent version",
+            "optional": true
+          }
+        },
+        "required": ["status", "agent"]
+      },
+      "examples": {
+        "request": {
+          "jsonrpc": "2.0",
+          "id": "1",
+          "method": "agent.ping",
+          "params": {}
+        },
+        "response": {
+          "jsonrpc": "2.0",
+          "id": "1",
+          "result": {
+            "status": "ok",
+            "agent": "homily_agent"
+          }
+        }
+      }
+    },
+    {
+      "name": "homily.generate",
+      "description": "Generate a new homily based on liturgical readings and preferences",
+      "params": {
+        "type": "object",
+        "properties": {
+          "liturgical_data": {
+            "type": "object",
+            "description": "Liturgical readings data",
+            "properties": {
+              "first_reading": {
+                "type": "object",
+                "description": "First reading content",
+                "properties": {
+                  "reference": { "type": "string" },
+                  "text": { "type": "string" }
+                }
+              },
+              "psalm": {
+                "type": "object",
+                "description": "Psalm content",
+                "properties": {
+                  "reference": { "type": "string" },
+                  "text": { "type": "string" }
+                }
+              },
+              "gospel": {
+                "type": "object",
+                "description": "Gospel content",
+                "properties": {
+                  "reference": { "type": "string" },
+                  "text": { "type": "string" }
+                }
+              }
+            }
+          },
+          "occasion": {
+            "type": "string",
+            "description": "Liturgical occasion type",
+            "default": "mass",
+            "enum": ["mass", "marriage", "funeral", "baptism"]
+          },
+          "preferences": {
+            "type": "object",
+            "description": "User preferences for homily generation",
+            "properties": {
+              "style": {
+                "type": "string",
+                "description": "Homily style preference",
+                "enum": ["contemplative", "expository", "narrative", "thematic"]
+              },
+              "length": {
+                "type": "string",
+                "description": "Desired homily length",
+                "enum": ["short", "medium", "long"]
+              },
+              "audience": {
+                "type": "string",
+                "description": "Target audience"
+              },
+              "language": {
+                "type": "string",
+                "description": "Language for homily",
+                "default": "en"
+              }
+            }
+          }
+        },
+        "required": ["liturgical_data"]
+      },
+      "returns": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "description": "Operation status",
+            "enum": ["success"]
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "homily": {
+                "type": "object",
+                "description": "Generated homily content",
+                "properties": {
+                  "title": { "type": "string" },
+                  "content": { "type": "string" },
+                  "word_count": { "type": "integer" }
+                }
+              },
+              "sources": {
+                "type": "array",
+                "description": "Theological sources used",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "title": { "type": "string" },
+                    "author": { "type": "string" },
+                    "reference": { "type": "string" }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "required": ["status", "data"]
+      },
+      "errors": [
+        {
+          "code": "GENERATION_ERROR",
+          "message": "Failed to generate homily",
+          "description": "Error during homily generation process"
+        }
+      ],
+      "examples": {
+        "request": {
+          "jsonrpc": "2.0",
+          "id": "2",
+          "method": "homily.generate",
+          "params": {
+            "liturgical_data": {
+              "first_reading": {
+                "reference": "Genesis 12:1-4a",
+                "text": "The Lord said to Abram..."
+              },
+              "gospel": {
+                "reference": "John 3:1-17",
+                "text": "Jesus said to Nicodemus..."
+              }
+            },
+            "occasion": "mass",
+            "preferences": {
+              "style": "contemplative",
+              "length": "medium"
+            }
+          }
+        },
+        "response": {
+          "jsonrpc": "2.0",
+          "id": "2",
+          "result": {
+            "status": "success",
+            "data": {
+              "homily": {
+                "title": "Called to Faith",
+                "content": "Brothers and sisters...",
+                "word_count": 800
+              },
+              "sources": [
+                {
+                  "title": "Catechism of the Catholic Church",
+                  "reference": "CCC 1819"
+                }
+              ]
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "homily.refine",
+      "description": "Refine an existing homily draft based on feedback",
+      "params": {
+        "type": "object",
+        "properties": {
+          "liturgical_data": {
+            "type": "object",
+            "description": "Liturgical readings data (optional for refinement)",
+            "properties": {
+              "first_reading": { "type": "object" },
+              "psalm": { "type": "object" },
+              "gospel": { "type": "object" }
+            }
+          },
+          "occasion": {
+            "type": "string",
+            "description": "Liturgical occasion type",
+            "default": "mass"
+          },
+          "preferences": {
+            "type": "object",
+            "description": "User preferences for refinement"
+          },
+          "existing_draft": {
+            "type": "string",
+            "description": "Existing homily draft to refine",
+            "required": true
+          }
+        },
+        "required": ["existing_draft"]
+      },
+      "returns": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": ["success"]
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "homily": {
+                "type": "object",
+                "description": "Refined homily content",
+                "properties": {
+                  "title": { "type": "string" },
+                  "content": { "type": "string" },
+                  "word_count": { "type": "integer" }
+                }
+              }
+            }
+          }
+        },
+        "required": ["status", "data"]
+      },
+      "errors": [
+        {
+          "code": "REFINE_ERROR",
+          "message": "Failed to refine homily",
+          "description": "Error during homily refinement process"
+        }
+      ],
+      "examples": {
+        "request": {
+          "jsonrpc": "2.0",
+          "id": "3",
+          "method": "homily.refine",
+          "params": {
+            "existing_draft": "Brothers and sisters, today we reflect on faith...",
+            "preferences": {
+              "style": "expository"
+            }
+          }
+        },
+        "response": {
+          "jsonrpc": "2.0",
+          "id": "3",
+          "result": {
+            "status": "success",
+            "data": {
+              "homily": {
+                "title": "The Gift of Faith",
+                "content": "Brothers and sisters, today we reflect deeply on faith...",
+                "word_count": 950
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "homily.adjust_tone",
+      "description": "Adjust the tone of a homily based on preferences",
+      "params": {
+        "type": "object",
+        "properties": {
+          "liturgical_data": {
+            "type": "object",
+            "description": "Liturgical readings data (optional)"
+          },
+          "occasion": {
+            "type": "string",
+            "description": "Liturgical occasion type",
+            "default": "mass"
+          },
+          "preferences": {
+            "type": "object",
+            "description": "User preferences for tone adjustment",
+            "properties": {
+              "style": {
+                "type": "string",
+                "description": "Desired tone style"
+              },
+              "audience": {
+                "type": "string",
+                "description": "Target audience"
+              }
+            }
+          }
+        }
+      },
+      "returns": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": ["success"]
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "homily": {
+                "type": "object",
+                "description": "Adjusted homily content",
+                "properties": {
+                  "title": { "type": "string" },
+                  "content": { "type": "string" },
+                  "word_count": { "type": "integer" }
+                }
+              }
+            }
+          }
+        },
+        "required": ["status", "data"]
+      },
+      "errors": [
+        {
+          "code": "ADJUST_ERROR",
+          "message": "Failed to adjust tone",
+          "description": "Error during tone adjustment process"
+        }
+      ],
+      "examples": {
+        "request": {
+          "jsonrpc": "2.0",
+          "id": "4",
+          "method": "homily.adjust_tone",
+          "params": {
+            "preferences": {
+              "style": "narrative",
+              "audience": "youth"
+            }
+          }
+        },
+        "response": {
+          "jsonrpc": "2.0",
+          "id": "4",
+          "result": {
+            "status": "success",
+            "data": {
+              "homily": {
+                "title": "A Story of Faith",
+                "content": "Let me tell you a story about faith...",
+                "word_count": 700
+              }
+            }
+          }
+        }
+      }
+    }
+  ],
+  "error_codes": {
+    "PARSE_ERROR": {
+      "code": -32700,
+      "message": "Invalid JSON was received"
+    },
+    "INVALID_REQUEST": {
+      "code": -32600,
+      "message": "The JSON sent is not a valid Request object"
+    },
+    "METHOD_NOT_FOUND": {
+      "code": -32601,
+      "message": "The method does not exist or is not available"
+    },
+    "INVALID_PARAMS": {
+      "code": -32602,
+      "message": "Invalid method parameter(s)"
+    },
+    "INTERNAL_ERROR": {
+      "code": -32603,
+      "message": "Internal JSON-RPC error"
+    },
+    "GENERATION_ERROR": {
+      "code": -32000,
+      "message": "Homily generation failed"
+    },
+    "REFINE_ERROR": {
+      "code": -32001,
+      "message": "Homily refinement failed"
+    },
+    "ADJUST_ERROR": {
+      "code": -32002,
+      "message": "Tone adjustment failed"
+    }
+  }
+}

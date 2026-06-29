@@ -1,0 +1,1132 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Prete-a-porter — Code Review Report</title>
+<style>
+  :root {
+    --critical: #dc2626;
+    --critical-bg: #fef2f2;
+    --critical-border: #fecaca;
+    --important: #ea580c;
+    --important-bg: #fff7ed;
+    --important-border: #fed7aa;
+    --minor: #2563eb;
+    --minor-bg: #eff6ff;
+    --minor-border: #bfdbfe;
+    --bg: #f8fafc;
+    --card: #ffffff;
+    --text: #1e293b;
+    --text-secondary: #64748b;
+    --accent: #7c3aed;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.6;
+  }
+
+  /* HERO */
+  .hero {
+    background: linear-gradient(135deg, #1e1b4b 0%, #312e81 40%, #4338ca 100%);
+    color: white;
+    padding: 64px 24px 48px;
+    text-align: center;
+    position: relative;
+    overflow: hidden;
+  }
+  .hero::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(ellipse at 20% 50%, rgba(124,58,237,0.3) 0%, transparent 60%),
+                radial-gradient(ellipse at 80% 50%, rgba(99,102,241,0.2) 0%, transparent 60%);
+  }
+  .hero > * { position: relative; z-index: 1; }
+  .hero h1 { font-size: 2.5rem; font-weight: 800; margin-bottom: 8px; letter-spacing: -0.02em; }
+  .hero .subtitle { font-size: 1.1rem; opacity: 0.85; margin-bottom: 24px; }
+  .hero .meta {
+    display: flex; justify-content: center; gap: 32px; flex-wrap: wrap;
+    font-size: 0.9rem; opacity: 0.75;
+  }
+  .hero .meta span { display: flex; align-items: center; gap: 6px; }
+
+  /* DASHBOARD */
+  .dashboard {
+    max-width: 1200px; margin: -32px auto 32px; padding: 0 24px;
+    position: relative; z-index: 2;
+  }
+  .summary-cards {
+    display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 32px;
+  }
+  .summary-card {
+    background: var(--card); border-radius: 12px; padding: 20px 24px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.08); text-align: center;
+  }
+  .summary-card .number {
+    font-size: 2rem; font-weight: 800; line-height: 1.2;
+  }
+  .summary-card .label {
+    font-size: 0.85rem; color: var(--text-secondary); text-transform: uppercase;
+    letter-spacing: 0.05em; font-weight: 600;
+  }
+  .summary-card.critical .number { color: var(--critical); }
+  .summary-card.important .number { color: var(--important); }
+  .summary-card.minor .number { color: var(--minor); }
+  .summary-card.total .number { color: var(--accent); }
+
+  /* SECTION */
+  section { max-width: 1200px; margin: 0 auto 40px; padding: 0 24px; }
+  .section-title {
+    font-size: 1.5rem; font-weight: 700; margin-bottom: 20px;
+    display: flex; align-items: center; gap: 10px;
+  }
+  .section-title .badge {
+    font-size: 0.75rem; font-weight: 600; padding: 2px 10px; border-radius: 999px;
+    letter-spacing: 0.03em;
+  }
+
+  /* FINDING CARDS */
+  .finding {
+    background: var(--card); border-radius: 10px; margin-bottom: 12px;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.06);
+    border-left: 4px solid transparent;
+    overflow: hidden;
+  }
+  .finding.critical { border-left-color: var(--critical); }
+  .finding.important { border-left-color: var(--important); }
+  .finding.minor { border-left-color: var(--minor); }
+  .finding.by-design { border-left-color: #16a34a; }
+
+  .finding-header {
+    padding: 16px 20px; cursor: pointer;
+    display: flex; align-items: flex-start; gap: 12px;
+    user-select: none;
+  }
+  .finding-header:hover { background: rgba(0,0,0,0.01); }
+  .finding-header .severity-tag {
+    flex-shrink: 0; font-size: 0.7rem; font-weight: 700; text-transform: uppercase;
+    padding: 2px 8px; border-radius: 4px; letter-spacing: 0.05em;
+    margin-top: 3px;
+  }
+  .finding.critical .severity-tag { background: var(--critical-bg); color: var(--critical); }
+  .finding.important .severity-tag { background: var(--important-bg); color: var(--important); }
+  .finding.minor .severity-tag { background: var(--minor-bg); color: var(--minor); }
+  .finding.by-design .severity-tag { background: #f0fdf4; color: #16a34a; }
+
+  .finding-header .finding-title {
+    flex: 1; font-weight: 600; font-size: 0.95rem;
+  }
+  .finding-header .finding-location {
+    flex-shrink: 0; font-size: 0.78rem; color: var(--text-secondary);
+    font-family: 'SF Mono', 'Fira Code', 'Fira Mono', monospace;
+    background: var(--bg); padding: 2px 8px; border-radius: 4px;
+    max-width: 380px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .finding-header .toggle-icon {
+    flex-shrink: 0; color: var(--text-secondary); transition: transform 0.2s;
+    font-size: 0.8rem;
+  }
+  .finding-header .toggle-icon.open { transform: rotate(90deg); }
+
+  .finding-body {
+    padding: 0 20px 16px; display: none; font-size: 0.9rem; color: var(--text-secondary);
+    border-top: 1px solid #f1f5f9; margin-top: 0; padding-top: 12px;
+  }
+  .finding-body.open { display: block; }
+  .finding-body code {
+    background: #f1f5f9; padding: 1px 5px; border-radius: 3px;
+    font-family: 'SF Mono', 'Fira Code', monospace; font-size: 0.82rem;
+  }
+  .finding-body .code-block {
+    background: #1e293b; color: #e2e8f0; padding: 12px 16px; border-radius: 6px;
+    font-family: 'SF Mono', 'Fira Code', monospace; font-size: 0.82rem;
+    overflow-x: auto; margin: 8px 0; white-space: pre;
+  }
+
+  /* DIAGRAM CONTAINER */
+  .diagram-container {
+    background: var(--card); border-radius: 12px; padding: 32px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.08); margin-bottom: 32px;
+    overflow: hidden;
+  }
+  .diagram-container h3 {
+    font-size: 1.1rem; font-weight: 700; margin-bottom: 16px;
+    text-align: center;
+  }
+  .diagram-svg {
+    display: block; margin: 0 auto; max-width: 100%;
+  }
+
+  /* ARCHITECTURE DIAGRAM */
+  .arch-grid {
+    display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin: 20px 0;
+  }
+  .arch-box {
+    border: 2px solid #e2e8f0; border-radius: 10px; padding: 16px;
+    text-align: center;
+  }
+  .arch-box.red { border-color: var(--critical); background: var(--critical-bg); }
+  .arch-box.orange { border-color: var(--important); background: var(--important-bg); }
+  .arch-box.blue { border-color: var(--minor); background: var(--minor-bg); }
+  .arch-box.purple { border-color: var(--accent); background: #f5f3ff; }
+  .arch-box .arch-title { font-weight: 700; font-size: 0.9rem; margin-bottom: 4px; }
+  .arch-box .arch-count { font-size: 1.3rem; font-weight: 800; color: inherit; }
+  .arch-box .arch-desc { font-size: 0.78rem; color: var(--text-secondary); }
+
+  /* BUBBLE CHART */
+  .bubble-grid {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(380px, 1fr)); gap: 12px;
+  }
+
+  /* FOOTER */
+  .footer {
+    text-align: center; padding: 32px 24px; color: var(--text-secondary);
+    font-size: 0.85rem; border-top: 1px solid #e2e8f0; max-width: 1200px; margin: 0 auto;
+  }
+
+  @media (max-width: 768px) {
+    .summary-cards { grid-template-columns: repeat(2, 1fr); }
+    .arch-grid { grid-template-columns: 1fr; }
+    .bubble-grid { grid-template-columns: 1fr; }
+    .finding-header { flex-wrap: wrap; }
+    .finding-header .finding-location {
+      max-width: 100%; width: 100%; margin-left: 36px;
+    }
+    .hero h1 { font-size: 1.8rem; }
+  }
+</style>
+</head>
+<body>
+
+<!-- HERO -->
+<div class="hero">
+  <h1>🔍 Prete-a-porter Code Review</h1>
+  <p class="subtitle">29 issues found across backend, frontend, infrastructure, and configuration</p>
+  <div class="meta">
+    <span>📁 2,500+ lines audited</span>
+    <span>📦 4 packages + frontend</span>
+    <span>📅 May 2026</span>
+    <span>✅ 19 May — 22 of 30 issues resolved (commits <code style="color:#a5b4fc;background:rgba(255,255,255,0.1);padding:1px 6px;border-radius:3px">a5c81bc</code>, <code style="color:#a5b4fc;background:rgba(255,255,255,0.1);padding:1px 6px;border-radius:3px">85f014f</code>, <code style="color:#a5b4fc;background:rgba(255,255,255,0.1);padding:1px 6px;border-radius:3px">c13c9ca</code>, <code style="color:#a5b4fc;background:rgba(255,255,255,0.1);padding:1px 6px;border-radius:3px">12921a8</code>, <code style="color:#a5b4fc;background:rgba(255,255,255,0.1);padding:1px 6px;border-radius:3px">724d7f7</code>, <code style="color:#a5b4fc;background:rgba(255,255,255,0.1);padding:1px 6px;border-radius:3px">35a6a34</code>, <code style="color:#a5b4fc;background:rgba(255,255,255,0.1);padding:1px 6px;border-radius:3px">e8f76ac</code>, <code style="color:#a5b4fc;background:rgba(255,255,255,0.1);padding:1px 6px;border-radius:3px">e0d6cf8</code>, <code style="color:#a5b4fc;background:rgba(255,255,255,0.1);padding:1px 6px;border-radius:3px">fe8e26c</code>, <code style="color:#a5b4fc;background:rgba(255,255,255,0.1);padding:1px 6px;border-radius:3px">ae5bb5a</code>, <code style="color:#a5b4fc;background:rgba(255,255,255,0.1);padding:1px 6px;border-radius:3px">adb5515</code>, <code style="color:#a5b4fc;background:rgba(255,255,255,0.1);padding:1px 6px;border-radius:3px">68016af</code>, <code style="color:#a5b4fc;background:rgba(255,255,255,0.1);padding:1px 6px;border-radius:3px">afc0681</code>) <span style="font-size:0.8rem">+13 integration tests</span> <span style="font-size:0.8rem;color:#16a34a">Playwright: 8✅ 0❌</span></span>
+  </div>
+</div>
+
+<!-- DASHBOARD -->
+<div class="dashboard">
+  <div class="summary-cards">
+    <div class="summary-card critical">
+      <div class="number">10</div>
+      <div class="label">Critical</div>
+    </div>
+    <div class="summary-card important">
+      <div class="number">15</div>
+      <div class="label">Important</div>
+    </div>
+    <div class="summary-card minor">
+      <div class="number">3</div>
+      <div class="label">Minor</div>
+    </div>
+    <div class="summary-card total">
+      <div class="number">29</div>
+      <div class="label">Total Issues</div>
+    </div>
+  </div>
+</div>
+
+<!-- ARCHITECTURE OVERVIEW -->
+<section>
+  <div class="section-title">
+    🏗️ Architecture Overview
+    <span class="badge" style="background:#f1f5f9;color:#475569">LAYERED SYSTEM</span>
+  </div>
+  <div class="diagram-container">
+    <svg class="diagram-svg" viewBox="0 0 760 340" width="760" height="340" xmlns="http://www.w3.org/2000/svg">
+      <!-- Frontend -->
+      <rect x="20" y="20" width="720" height="56" rx="8" fill="#f0fdf4" stroke="#22c55e" stroke-width="2"/>
+      <text x="380" y="55" text-anchor="middle" font-size="16" font-weight="700" fill="#15803d">Frontend (Next.js 14 + TypeScript)</text>
+
+      <!-- Arrow -->
+      <line x1="380" y1="76" x2="380" y2="110" stroke="#64748b" stroke-width="2" marker-end="url(#arrow)"/>
+      <text x="420" y="96" font-size="11" fill="#64748b" font-family="monospace">WebSocket</text>
+
+      <defs>
+        <marker id="arrow" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="8" markerHeight="8" orient="auto">
+          <path d="M0,0 L10,5 L0,10 Z" fill="#64748b"/>
+        </marker>
+      </defs>
+
+      <!-- Chat Orchestrator -->
+      <rect x="230" y="110" width="300" height="50" rx="8" fill="#fef3c7" stroke="#f59e0b" stroke-width="2"/>
+      <text x="380" y="140" text-anchor="middle" font-size="14" font-weight="700" fill="#b45309">Chat Orchestrator Agent</text>
+
+      <!-- A2A arrows -->
+      <line x1="300" y1="160" x2="200" y2="200" stroke="#64748b" stroke-width="2" marker-end="url(#arrow)"/>
+      <line x1="460" y1="160" x2="560" y2="200" stroke="#64748b" stroke-width="2" marker-end="url(#arrow)"/>
+      <text x="230" y="185" font-size="10" fill="#64748b" font-family="monospace" text-anchor="middle">A2A Protocol</text>
+      <text x="530" y="185" font-size="10" fill="#64748b" font-family="monospace" text-anchor="middle">A2A Protocol</text>
+
+      <!-- Liturgy Agent -->
+      <rect x="40" y="200" width="300" height="50" rx="8" fill="#ede9fe" stroke="#8b5cf6" stroke-width="2"/>
+      <text x="190" y="230" text-anchor="middle" font-size="14" font-weight="700" fill="#6d28d9">Liturgy Agent</text>
+
+      <!-- Homily Agent -->
+      <rect x="420" y="200" width="300" height="50" rx="8" fill="#ede9fe" stroke="#8b5cf6" stroke-width="2"/>
+      <text x="570" y="230" text-anchor="middle" font-size="14" font-weight="700" fill="#6d28d9">Homily Generation Agent</text>
+
+      <!-- Data stores -->
+      <rect x="40" y="278" width="140" height="40" rx="6" fill="#f1f5f9" stroke="#cbd5e1" stroke-width="1.5"/>
+      <text x="110" y="303" text-anchor="middle" font-size="11" fill="#475569" font-family="monospace">SQLite Cache</text>
+      <rect x="500" y="278" width="140" height="40" rx="6" fill="#f1f5f9" stroke="#cbd5e1" stroke-width="1.5"/>
+      <text x="570" y="303" text-anchor="middle" font-size="11" fill="#475569" font-family="monospace">Vector DB (RAG)</text>
+      <rect x="40" y="318" width="300" height="22" rx="4" fill="#dcfce7" stroke="#22c55e" stroke-width="1"/>
+      <text x="190" y="333" text-anchor="middle" font-size="10" fill="#15803d" font-weight="600">Liturgy Agent: scraper-based, no vector DB</text>
+
+      <line x1="190" y1="250" x2="110" y2="278" stroke="#cbd5e1" stroke-width="1.5" stroke-dasharray="4"/>
+      <line x1="570" y1="250" x2="570" y2="278" stroke="#cbd5e1" stroke-width="1.5" stroke-dasharray="4"/>
+
+      <!-- Issue count badges -->
+      <rect x="348" y="112" width="64" height="18" rx="9" fill="#dc2626" opacity="0.9"/>
+      <text x="380" y="125" text-anchor="middle" font-size="10" font-weight="700" fill="white">2 issues</text>
+      <rect x="160" y="204" width="64" height="18" rx="9" fill="#dc2626" opacity="0.9"/>
+      <text x="192" y="217" text-anchor="middle" font-size="10" font-weight="700" fill="white">6 issues</text>
+      <rect x="528" y="204" width="64" height="18" rx="9" fill="#dc2626" opacity="0.9"/>
+      <text x="560" y="217" text-anchor="middle" font-size="10" font-weight="700" fill="white">8 issues</text>
+      <rect x="20" y="24" width="80" height="18" rx="9" fill="#ea580c" opacity="0.9"/>
+      <text x="60" y="37" text-anchor="middle" font-size="10" font-weight="700" fill="white">14 issues</text>
+    </svg>
+  </div>
+</section>
+
+<!-- BREAKDOWN BY LAYER -->
+<section>
+  <div class="section-title">
+    📊 Issues by Layer
+    <span class="badge" style="background:#f1f5f9;color:#475569">BUBBLE VIEW</span>
+  </div>
+  <div class="arch-grid">
+    <div class="arch-box red">
+      <div class="arch-title">📱 Frontend</div>
+      <div class="arch-count">14</div>
+      <div class="arch-desc">React, WebSocket, Next.js, Auth, CSS</div>
+    </div>
+    <div class="arch-box red">
+      <div class="arch-title">🧠 Backend Agents</div>
+      <div class="arch-count">16</div>
+      <div class="arch-desc">A2A Protocol, Liturgy, Homily, Chat</div>
+    </div>
+    <div class="arch-box orange">
+      <div class="arch-title">⚙️ Infrastructure</div>
+      <div class="arch-count">8</div>
+      <div class="arch-desc">Docker, CI/CD, Docs, Config</div>
+    </div>
+    <div class="arch-box purple">
+      <div class="arch-title">📋 Contracts & Data</div>
+      <div class="arch-count">5</div>
+      <div class="arch-desc">Schema mismatch, dead paths, validation</div>
+    </div>
+  </div>
+</section>
+
+<!-- SEVERITY LEGEND -->
+<section>
+  <div class="section-title">
+    🎯 All 30 Issues
+    <span class="badge" style="background:#f1f5f9;color:#475569">EXPAND FOR DETAIL</span>
+  </div>
+  <p style="margin-bottom:16px;font-size:0.9rem;color:var(--text-secondary)">
+    🔴 <strong>Critical</strong> — Security, data loss, or broken functionality &nbsp;·&nbsp;
+    🟠 <strong>Important</strong> — Code quality, potential bugs, or best-practice violations &nbsp;·&nbsp;
+    🔵 <strong>Minor</strong> — Style, naming, or minor improvements
+  </p>
+</section>
+
+<section style="max-width:1200px;margin:0 auto 40px;padding:0 24px">
+  <!-- CRITICAL -->
+  <div class="section-title" style="margin-top:0">
+    🔴 Critical
+    <span class="badge" style="background:var(--critical-bg);color:var(--critical)">8 issues</span>
+  </div>
+  <div class="bubble-grid">
+    <div class="finding critical">
+      <div class="finding-header" onclick="this.nextElementSibling.classList.toggle('open');this.querySelector('.toggle-icon').classList.toggle('open')">
+        <span class="severity-tag" style="background:#d97706">Partially Resolved</span>
+        <span class="finding-title">1. <code>backend/</code> directory doesn't exist — 6+ files reference dead paths</span>
+        <span class="finding-location">Fixed in a5c81bc — see resolved note</span>
+        <span class="toggle-icon">▶</span>
+      </div>
+      <div class="finding-body">
+        The project was restructured from <code>backend/</code> to <code>packages/</code> but documentation, validation scripts, and completion reports all reference <code>backend/src/...</code> paths. Sphinx cannot build docs, validation scripts cannot run, and all phase completion docs contain incorrect file paths.
+        <p><strong>✅ Resolved (2026-05-19, commit a5c81bc):</strong></p>
+        <ul>
+          <li>Created <code>AGENTS.md</code> with correct <code>packages/</code> paths as canonical agent reference</li>
+          <li>Removed <code>PHASE_1_5_COMPLETION.md</code>, <code>PHASE2_COMPLETION.md</code>, <code>PHASE3_COMPLETION.md</code> (obsolete, stale paths)</li>
+          <li>Archived <code>SPECIFICATION_PLAN.md</code> to <code>docs/archived/</code></li>
+          <li>Trimmed <code>SPECIFICATION.md</code> (896 → 416 lines) with pointers to <code>AGENTS.md</code></li>
+          <li>Fixed 12 <code>docs/*.rst</code> files and <code>docs/conf.py</code> — all <code>backend/</code> paths → <code>packages/</code></li>
+          <li>Fixed <code>validate_phase2.py</code> and <code>validate_phase3.py</code> sys.path + file paths</li>
+          <li>Trimmed <code>packages/liturgy-agent/src/liturgy_agent/README.md</code> to setup/run/test only</li>
+        </ul>
+        <p><strong>Remaining:</strong> <code>:doc:`backend/index`</code> cross-references in 4 <code>.rst</code> files are Sphinx toctree entries pointing to <code>docs/backend/index.rst</code> — these are correct as-is.</p>
+      </div>
+    </div>
+
+    <div class="finding critical">
+      <div class="finding-header" onclick="this.nextElementSibling.classList.toggle('open');this.querySelector('.toggle-icon').classList.toggle('open')">
+        <span class="severity-tag" style="background:#16a34a">Resolved</span>
+        <span class="finding-title">2. Liturgy agent passes <code>state.occasion</code> as date to <code>get_daily_readings</code></span>
+        <span class="finding-location">Fixed in commit below — see resolved note</span>
+        <span class="toggle-icon">▶</span>
+      </div>
+      <div class="finding-body">
+        Calls <code>agent.get_daily_readings(state.occasion)</code> where <code>occasion</code> is a Literal like <code>"mass"</code> or <code>"marriage"</code>, but the method expects a date string. Will crash on <code>datetime.fromisoformat("mass")</code> — a <code>ValueError</code>. Same pattern on lines 477 and 479 with wrong parameters.
+        <p><strong>✅ Resolved (2026-05-19):</strong></p>
+        <ul>
+          <li>Replaced <code>_parse_intent(state.occasion)</code> dispatch with direct <code>state.occasion</code> checks</li>
+          <li><code>get_daily_readings</code> now receives <code>state.date</code> (ISO date string) instead of <code>state.occasion</code></li>
+          <li>Removed dead <code>_parse_intent</code> function (no longer called anywhere)</li>
+          <li>Added 6 TDD tests in <code>packages/liturgy-agent/tests/test_agent.py</code></li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="finding critical">
+      <div class="finding-header" onclick="this.nextElementSibling.classList.toggle('open');this.querySelector('.toggle-icon').classList.toggle('open')">
+        <span class="severity-tag" style="background:#16a34a">Resolved</span>
+        <span class="finding-title">3. A2A transport sends to <code>/a2a</code> but server listens on <code>/</code></span>
+        <span class="finding-location">Fixed in commit below — see resolved note</span>
+        <span class="toggle-icon">▶</span>
+      </div>
+      <div class="finding-body">
+        <code>HTTPTransport.send()</code> constructs URL as <code>f"{self.agent_url}/a2a"</code> but the FastAPI server registers route on <code>"/"</code>. All HTTP A2A calls return <strong>404 Not Found</strong>. The A2A protocol cannot function over HTTP transport.
+        <p><strong>✅ Resolved (2026-05-19):</strong></p>
+        <ul>
+          <li>Changed <code>HTTPTransport.send()</code> URL from <code>"{agent_url}/a2a"</code> to <code>"{agent_url}/"</code> to match server route</li>
+          <li>Changed <code>HTTPTransport.send_stream()</code> URL from <code>"{agent_url}/a2a/stream"</code> to <code>"{agent_url}/stream"</code></li>
+          <li>Added 1 TDD test in <code>packages/a2a-protocol/tests/test_transport_routes.py</code></li>
+          <li>A2AClient and E2E tests already used <code>"/"</code> — no changes needed</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="finding important">
+      <div class="finding-header" onclick="this.nextElementSibling.classList.toggle('open');this.querySelector('.toggle-icon').classList.toggle('open')">
+        <span class="severity-tag" style="background:#2563eb">Info — Gitignored, local dev only</span>
+        <span class="finding-title">4. Secrets in <code>.env</code> / <code>.env.local</code> — local dev, no VCS risk</span>
+        <span class="finding-location">.env + frontend/.env.local (both gitignored)</span>
+        <span class="toggle-icon">▶</span>
+      </div>
+      <div class="finding-body">
+        Both <code>.env</code> and <code>frontend/.env.local</code> are <strong>gitignored</strong> and contain real-looking secrets (<code>GOOGLE_API_KEY</code>, <code>WS_JWT_SECRET</code>) for local development. Not committed to VCS, no action needed. In production, secrets should be injected via environment variables, not <code>.env</code> files.
+        <p><strong>Note:</strong> The same <code>WS_JWT_SECRET</code> value is used in both <code>.env</code> and <code>frontend/.env.local</code> — consider using different values per service in a production setup.</p>
+      </div>
+    </div>
+
+    <div class="finding critical">
+      <div class="finding-header" onclick="this.nextElementSibling.classList.toggle('open');this.querySelector('.toggle-icon').classList.toggle('open')">
+        <span class="severity-tag" style="background:#16a34a">Resolved</span>
+        <span class="finding-title">5. Missing <code>SessionProvider</code> in root layout</span>
+        <span class="finding-location">Commit 85f014f — frontend/src/app/layout.tsx</span>
+        <span class="toggle-icon">▶</span>
+      </div>
+      <div class="finding-body">
+        Client components use <code>signIn</code>, <code>signOut</code>, and <code>useSession</code> from next-auth, but the root layout never wraps children with <code>&lt;SessionProvider&gt;</code>. A <code>SessionProvider</code> component exists but was <strong>never imported</strong>. Client-side auth state was broken.
+        <p><strong>✅ Resolved (2026-05-19, commit 85f014f):</strong></p>
+        <ul>
+          <li>Imported <code>SessionProvider</code> from <code>@/components/providers</code></li>
+          <li>Wrapped <code>{children}</code> with <code>&lt;SessionProvider&gt;</code> in root layout</li>
+          <li>Build passes (0 errors), all e2e auth tests pass</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="finding critical">
+      <div class="finding-header" onclick="this.nextElementSibling.classList.toggle('open');this.querySelector('.toggle-icon').classList.toggle('open')">
+        <span class="severity-tag" style="background:#16a34a">Resolved</span>
+        <span class="finding-title">6. Array index as React key in Chat.tsx</span>
+        <span class="finding-location">Commit c13c9ca — frontend/src/components/Chat.tsx</span>
+        <span class="toggle-icon">▶</span>
+      </div>
+      <div class="finding-body">
+        Uses <code>key={index}</code> in the message list. This causes incorrect re-rendering and lost DOM state when messages are filtered, reordered, or new messages arrive. React cannot correctly identify which items changed — a well-known anti-pattern.
+        <p><strong>✅ Resolved (2026-05-19):</strong></p>
+        <ul>
+          <li>Added <code>id: string</code> (required) to <code>BaseMessage</code> in <code>types/index.ts</code></li>
+          <li>All 6 message creation points in <code>Chat.tsx</code> use <code>crypto.randomUUID()</code> as <code>id</code></li>
+          <li>Changed <code>key={index}</code> → <code>key={message.id}</code></li>
+          <li>Build passes (0 errors), e2e auth tests pass, Docker image rebuilt</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="finding critical">
+      <div class="finding-header" onclick="this.nextElementSibling.classList.toggle('open');this.querySelector('.toggle-icon').classList.toggle('open')">
+        <span class="severity-tag" style="background:#16a34a">Resolved</span>
+        <span class="finding-title">7. WebSocket connection memory leak on unmount</span>
+        <span class="finding-location">Commit 12921a8 — frontend/src/components/Chat.tsx</span>
+        <span class="toggle-icon">▶</span>
+      </div>
+      <div class="finding-body">
+        The <code>connect()</code> function is async. If the component unmounts before <code>connect()</code> completes (before <code>wsRef.current = ws</code>), the cleanup runs but <code>wsRef.current</code> is still <code>null</code>. When <code>connect()</code> eventually resolves, it sets a new WebSocket that is <strong>never closed</strong>.
+        <p><strong>✅ Resolved (2026-05-19):</strong></p>
+        <ul>
+          <li>Added <code>cancelled</code> flag in effect closure</li>
+          <li>Guarded all <code>setState</code> and <code>wsRef.current</code> assignment after <code>await</code> with <code>if (cancelled) return</code></li>
+          <li>Wrapped <code>connect()</code> body in try/catch for unhandled promise rejections</li>
+          <li>Added e2e test: rapid navigation away from <code>/chat</code> during WS connect</li>
+          <li>Build passes (0 errors), all 3 e2e connection tests pass</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="finding critical">
+      <div class="finding-header" onclick="this.nextElementSibling.classList.toggle('open');this.querySelector('.toggle-icon').classList.toggle('open')">
+        <span class="severity-tag" style="background:#16a34a">Resolved</span>
+        <span class="finding-title">8. Blocking <code>graph.invoke()</code> inside async handler</span>
+        <span class="finding-location">Commit 724d7f7 — packages/homily-agent/src/homily_agent/main.py:124</span>
+        <span class="toggle-icon">▶</span>
+      </div>
+      <div class="finding-body">
+        <code>final_state = self.graph.invoke(graph_state)</code> is called in an <code>async def</code> method but <code>graph.invoke()</code> is synchronous. This <strong>blocks the event loop</strong> for potentially seconds during homily generation. Should use <code>graph.ainvoke()</code>.
+        <p><strong>✅ Resolved (2026-05-19):</strong></p>
+        <ul>
+          <li>Changed <code>self.graph.invoke(graph_state)</code> → <code>await self.graph.ainvoke(graph_state)</code></li>
+          <li><code>ainvoke()</code> runs sync graph nodes in a thread pool via <code>run_in_executor</code></li>
+          <li>Event loop is no longer blocked during homily generation</li>
+          <li>Syntax verified, mypy passes</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="finding critical">
+      <div class="finding-header" onclick="this.nextElementSibling.classList.toggle('open');this.querySelector('.toggle-icon').classList.toggle('open')">
+        <span class="severity-tag" style="background:#16a34a">Resolved</span>
+        <span class="finding-title">9. <code>_validate_node</code> discards validation results entirely</span>
+        <span class="finding-location">Commit 35a6a34 — packages/homily-agent/src/homily_agent/graph.py:117-122</span>
+        <span class="toggle-icon">▶</span>
+      </div>
+      <div class="finding-body">
+        Calls <code>agent.validate_homily(homily_state)</code> but <strong>never assigns the return value</strong>. Unlike all other graph nodes (e.g., <code>_generate_node</code>), this node is effectively a no-op — validation runs but the results are thrown away. The state is returned unchanged.
+        <p><strong>✅ Resolved (2026-05-19):</strong></p>
+        <ul>
+          <li>Added <code>validation: Optional[dict] = None</code> field to <code>HomilyAgentState</code></li>
+          <li>Added <code>for key, value in updates.items(): setattr(homily_state, key, value)</code> to <code>_validate_node</code></li>
+          <li>Validation results are now stored on the state and available downstream</li>
+          <li>2 unit tests added: validates with homily, validates without homily</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section style="max-width:1200px;margin:0 auto 40px;padding:0 24px">
+  <!-- IMPORTANT -->
+  <div class="section-title">
+    🟠 Important
+    <span class="badge" style="background:var(--important-bg);color:var(--important)">18 issues</span>
+  </div>
+  <div class="bubble-grid">
+    <div class="finding important">
+      <div class="finding-header" onclick="this.nextElementSibling.classList.toggle('open');this.querySelector('.toggle-icon').classList.toggle('open')">
+        <span class="severity-tag" style="background:#16a34a">Resolved</span>
+        <span class="finding-title">10. VaticanScraper fetches same static URL regardless of date</span>
+        <span class="finding-location">Removed — packages/liturgy-agent/src/liturgy_agent/scrapers.py</span>
+        <span class="toggle-icon">▶</span>
+      </div>
+      <div class="finding-body">
+        URL is always <code>.../missal/missal.html</code> — a static index page, not a date-specific liturgy endpoint. Returns the same data for any date, making this scraper completely non-functional for daily readings.
+        <p><strong>✅ Resolved (2026-05-19):</strong></p>
+        <ul>
+          <li>Entire <code>VaticanScraper</code> class removed (dead code — never called, never used)</li>
+          <li><code>include_vatican</code> parameter removed from <code>fetch_liturgical_data()</code></li>
+          <li>Import removed from <code>agent.py</code>, <code>validate_phase2.py</code></li>
+          <li>References removed from <code>AGENTS.md</code>, <code>state.py</code> comment</li>
+          <li>13 new integration tests verify signature, HTTP success/failure, and <code>_build_reading_from_scraped</code> pipeline</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="finding important">
+      <div class="finding-header" onclick="this.nextElementSibling.classList.toggle('open');this.querySelector('.toggle-icon').classList.toggle('open')">
+        <span class="severity-tag" style="background:#16a34a">Resolved</span>
+        <span class="finding-title">11. Occasion mismatch: contract says <code>"wedding"</code>, code says <code>"marriage"</code></span>
+        <span class="finding-location">Fixed in fe8e26c — see resolved note</span>
+        <span class="toggle-icon">▶</span>
+      </div>
+      <div class="finding-body">
+        The contract JSON defines the occasion enum as <code>["mass", "wedding", "funeral", "baptism"]</code> but the Pydantic model uses <code>Literal["mass", "marriage", "baptism", "funeral"]</code>. Clients following the contract will fail with a validation error.
+        <p><strong>✅ Resolved (2026-05-19, commit fe8e26c):</strong></p>
+        <ul>
+          <li>Changed <code>"wedding"</code> to <code>"marriage"</code> in <code>contracts/homily-agent-contract.json:97</code></li>
+          <li>No runtime code changes needed — all Python, TypeScript, and tests already use <code>"marriage"</code></li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="finding important">
+      <div class="finding-header" onclick="this.nextElementSibling.classList.toggle('open');this.querySelector('.toggle-icon').classList.toggle('open')">
+        <span class="severity-tag">Important</span>
+        <span class="finding-title">12. No server-side password validation on registration</span>
+        <span class="finding-location">frontend/src/app/api/auth/register/route.ts:9</span>
+        <span class="toggle-icon">▶</span>
+      </div>
+      <div class="finding-body">
+        Client validates minimum 6 characters, but the server accepts <strong>any password length</strong> (including empty string or single character) via direct API calls. Also no rate limiting on this endpoint — vulnerable to mass registration and brute-force attacks.
+      </div>
+    </div>
+
+    <div class="finding important">
+      <div class="finding-header" onclick="this.nextElementSibling.classList.toggle('open');this.querySelector('.toggle-icon').classList.toggle('open')">
+        <span class="severity-tag" style="background:#16a34a">Resolved</span>
+        <span class="finding-title">13. CORS <code>allow_origins</code> hardcoded to <code>localhost:3000</code></span>
+        <span class="finding-location">Fixed in ae5bb5a — see resolved note</span>
+        <span class="toggle-icon">▶</span>
+      </div>
+      <div class="finding-body">
+        Should be configurable via environment variable. A production deployment behind a different domain will get CORS errors.
+        <p><strong>✅ Resolved (2026-05-19, commit ae5bb5a):</strong></p>
+        <ul>
+          <li>Replaced hardcoded <code>["http://localhost:3000"]</code> with <code>os.environ.get("CORS_ORIGINS", "http://localhost:3000").split(",")</code></li>
+          <li>Added <code>CORS_ORIGINS</code> env var to <code>docker-compose.yml</code></li>
+          <li>Supports comma-separated origins for multi-domain deployments</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="finding important">
+      <div class="finding-header" onclick="this.nextElementSibling.classList.toggle('open');this.querySelector('.toggle-icon').classList.toggle('open')">
+        <span class="severity-tag">Important</span>
+        <span class="finding-title">14. Cache permanently disabled by <code>if False and cached</code></span>
+        <span class="finding-location">packages/liturgy-agent/src/liturgy_agent/cache.py</span>
+        <span class="toggle-icon">▶</span>
+      </div>
+      <div class="finding-body">
+        The cache read path is guarded by <code>if False and cached:</code> — the <code>False</code> literal means the cache <strong>never reads</strong>, only writes. It's write-only dead code. <code>PHASE2_COMPLETION.md</code> falsely claims the caching system is fully operational.
+      </div>
+    </div>
+
+    <div class="finding important">
+      <div class="finding-header" onclick="this.nextElementSibling.classList.toggle('open');this.querySelector('.toggle-icon').classList.toggle('open')">
+        <span class="severity-tag" style="background:#16a34a">Resolved</span>
+        <span class="finding-title">15. <code>_handle_get_lectionary</code> can crash on None return</span>
+        <span class="finding-location">Fixed in adb5515 — see resolved note</span>
+        <span class="toggle-icon">▶</span>
+      </div>
+      <div class="finding-body">
+        Calls <code>.get(occasion)</code> on the result of <code>_load_lectionary(occasion)</code> which returns <code>None</code> if the JSON file doesn't exist or fails to parse. Will raise <code>AttributeError: 'NoneType' object has no attribute 'get'</code>.
+        <p><strong>✅ Resolved (2026-05-19, commit adb5515):</strong></p>
+        <ul>
+          <li>Added <code>if lectionary_data is None: raise ValueError(...)</code> guard before accessing the dict</li>
+          <li>Coerente con il pattern <code>ValueError</code> già usato per occasion sconosciute</li>
+          <li>2 test aggiunti: None return e missing occasion param</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="finding important">
+      <div class="finding-header" onclick="this.nextElementSibling.classList.toggle('open');this.querySelector('.toggle-icon').classList.toggle('open')">
+        <span class="severity-tag">Important</span>
+        <span class="finding-title">16. No WebSocket heartbeat/ping mechanism</span>
+        <span class="finding-location">packages/chat-orchestrator/src/chat_orchestrator/routes.py:117</span>
+        <span class="toggle-icon">▶</span>
+      </div>
+      <div class="finding-body">
+        <code>websocket.receive_text()</code> in an infinite loop with no keepalive, no heartbeat, no ping/pong. Silently dropped connections are undetected until attempting to send a message.
+      </div>
+    </div>
+
+    <div class="finding important">
+      <div class="finding-header" onclick="this.nextElementSibling.classList.toggle('open');this.querySelector('.toggle-icon').classList.toggle('open')">
+        <span class="severity-tag">Important</span>
+        <span class="finding-title">17. <code>_chunk_text</code> infinite loop if overlap >= chunk_size</span>
+        <span class="finding-location">packages/homily-agent/src/homily_agent/rag/retrieval.py:258-278</span>
+        <span class="toggle-icon">▶</span>
+      </div>
+      <div class="finding-body">
+        No validation that <code>overlap &lt; chunk_size</code>. With <code>overlap=200, chunk_size=100</code>, <code>start</code> becomes negative and the loop never advances past <code>len(text)</code>. Also splits text at exact character boundaries, corrupting word-level semantic units.
+      </div>
+    </div>
+
+    <div class="finding important">
+      <div class="finding-header" onclick="this.nextElementSibling.classList.toggle('open');this.querySelector('.toggle-icon').classList.toggle('open')">
+        <span class="severity-tag">Important</span>
+        <span class="finding-title">18. Hardcoded local filesystem path in <code>contracts/pyproject.toml</code></span>
+        <span class="finding-location">contracts/pyproject.toml:13</span>
+        <span class="toggle-icon">▶</span>
+      </div>
+      <div class="finding-body">
+        <code>"a2a-protocol @ file:///Users/gbartoloni/.../packages/a2a-protocol"</code> — absolute path bound to the developer's machine. Will fail to install on any other machine. Other packages use relative <code>[tool.uv.sources]</code> paths correctly.
+      </div>
+    </div>
+
+    <div class="finding important">
+      <div class="finding-header" onclick="this.nextElementSibling.classList.toggle('open');this.querySelector('.toggle-icon').classList.toggle('open')">
+        <span class="severity-tag" style="background:#16a34a">Resolved</span>
+        <span class="finding-title">19. Docker Compose frontend uses <code>localhost</code> instead of service name</span>
+        <span class="finding-location">Fixed in 68016af — see resolved note</span>
+        <span class="toggle-icon">▶</span>
+      </div>
+      <div class="finding-body">
+        <code>WS_URL=ws://localhost:8000/ws/chat</code> inside the frontend container. <code>localhost</code> refers to the container itself, not the chat-orchestrator service. Should be <code>ws://chat-orchestrator:8000/ws/chat</code>. WebSocket connections from Docker will fail.
+        <p><strong>✅ Resolved (2026-05-19, commit 68016af):</strong></p>
+        <ul>
+          <li>Changed <code>localhost</code> to <code>chat-orchestrator</code> in <code>WS_URL</code></li>
+          <li>Il fallback <code>"ws://localhost:8000/ws/chat"</code> in <code>frontend/src/app/api/config/route.ts</code> è preservato per dev locale fuori Docker</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="finding by-design">
+      <div class="finding-header" onclick="this.nextElementSibling.classList.toggle('open');this.querySelector('.toggle-icon').classList.toggle('open')">
+        <span class="severity-tag">By design</span>
+        <span class="finding-title">20. <code>a2a-inspector</code> built from external repo — not in <code>docker-compose.yml</code></span>
+        <span class="finding-location">Built separately from upstream repo</span>
+        <span class="toggle-icon">▶</span>
+      </div>
+      <div class="finding-body">
+        The <code>a2a-inspector</code> image must be built separately from the upstream repository before running <code>docker compose up</code>. The service entry in <code>docker-compose.yml</code> is intentional — it activates the inspector when the image is present. This is not a bug.
+      </div>
+    </div>
+
+    <div class="finding important">
+      <div class="finding-header" onclick="this.nextElementSibling.classList.toggle('open');this.querySelector('.toggle-icon').classList.toggle('open')">
+        <span class="severity-tag">Important</span>
+        <span class="finding-title">21. No timeout on chat orchestrator graph execution</span>
+        <span class="finding-location">packages/chat-orchestrator/src/chat_orchestrator/routes.py:126-129</span>
+        <span class="toggle-icon">▶</span>
+      </div>
+      <div class="finding-body">
+        <code>graph.ainvoke()</code> has no <code>asyncio.wait_for()</code> wrapper and no timeout parameter. A stuck agent invocation would hang the WebSocket connection permanently with no recovery.
+      </div>
+    </div>
+
+    <div class="finding important">
+      <div class="finding-header" onclick="this.nextElementSibling.classList.toggle('open');this.querySelector('.toggle-icon').classList.toggle('open')">
+        <span class="severity-tag">Important</span>
+        <span class="finding-title">22. <code>LiturgicalReading(**data)</code> can raise unhandled Pydantic error</span>
+        <span class="finding-location">packages/liturgy-agent/src/liturgy_agent/agent.py:487</span>
+        <span class="toggle-icon">▶</span>
+      </div>
+      <div class="finding-body">
+        <code>data</code> comes from <code>result.get("data", {})</code> — an arbitrary dict from scraping. If it doesn't match the Pydantic model (e.g., missing required <code>first_reading</code> or <code>gospel</code>), a <code>ValidationError</code> propagates unhandled.
+      </div>
+    </div>
+
+    <div class="finding important">
+      <div class="finding-header" onclick="this.nextElementSibling.classList.toggle('open');this.querySelector('.toggle-icon').classList.toggle('open')">
+        <span class="severity-tag">Important</span>
+        <span class="finding-title">23. <code>prose-liturgy</code> Tailwind typography class does nothing</span>
+        <span class="finding-location">frontend/src/components/messages/MessageRenderer.tsx:31</span>
+        <span class="toggle-icon">▶</span>
+      </div>
+      <div class="finding-body">
+        <code>@tailwindcss/typography</code> only generates <code>prose-{color}</code> modifiers for built-in Tailwind color names. Custom colors like <code>liturgy</code> are <strong>not supported</strong>. This class compiles but has no effect.
+      </div>
+    </div>
+
+    <div class="finding important">
+      <div class="finding-header" onclick="this.nextElementSibling.classList.toggle('open');this.querySelector('.toggle-icon').classList.toggle('open')">
+        <span class="severity-tag" style="background:#16a34a">Resolved</span>
+        <span class="finding-title">24. Dark mode classes compiled but never activated</span>
+        <span class="finding-location">frontend/tailwind.config.ts + 10 files</span>
+        <span class="toggle-icon">▶</span>
+      </div>
+      <div class="finding-body">
+        No <code>darkMode</code> configuration present (<code>'class'</code> or <code>'media'</code>), yet 6 components extensively use <code>dark:</code> variants. All dark mode CSS is <strong>dead code</strong> — it compiles but never activates.
+        <p><strong>✅ Resolved (2026-05-21):</strong></p>
+        <ul>
+          <li><code>frontend/tailwind.config.ts</code>: added <code>darkMode: 'class'</code></li>
+          <li><code>frontend/</code>: installed <code>next-themes</code> for theme management</li>
+          <li><code>frontend/src/components/providers/ThemeProvider.tsx</code>: created wrapper around <code>next-themes</code> with <code>attribute="class"</code>, <code>defaultTheme="system"</code></li>
+          <li><code>frontend/src/app/layout.tsx</code>: added <code>suppressHydrationWarning</code>, dark body classes (<code>dark:bg-slate-950</code>), wrapped with <code>ThemeProvider</code></li>
+          <li><code>frontend/src/components/ThemeToggle.tsx</code>: created sun/moon toggle button with hydration-safe mount</li>
+          <li><code>frontend/src/app/chat/page.tsx</code>: added <code>&lt;ThemeToggle /&gt;</code> in header + dark mode classes on <code>&lt;main&gt;</code>, <code>&lt;header&gt;</code>, <code>&lt;h1&gt;</code>, email</li>
+          <li><code>frontend/e2e/dark-mode.spec.ts</code>: 3 Playwright tests (visibility, toggle, persistence) — all passing</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="finding important">
+      <div class="finding-header" onclick="this.nextElementSibling.classList.toggle('open');this.querySelector('.toggle-icon').classList.toggle('open')">
+        <span class="severity-tag">Important</span>
+        <span class="finding-title">25. Bible abbreviations inconsistent between agents</span>
+        <span class="finding-location">agent.py:259 / bible_parser.py:34</span>
+        <span class="toggle-icon">▶</span>
+      </div>
+      <div class="finding-body">
+        Liturgy agent abbreviates Genesis as <code>"Gn"</code> but Homily agent uses <code>"Gen"</code>. These inconsistencies will cause failures when normalized Bible references are compared across agents. Additionally, <code>"john": "Jn"</code> appears as a duplicate key in the liturgy agent's map.
+      </div>
+    </div>
+
+    <div class="finding important">
+      <div class="finding-header" onclick="this.nextElementSibling.classList.toggle('open');this.querySelector('.toggle-icon').classList.toggle('open')">
+        <span class="severity-tag" style="background:#16a34a">Resolved</span>
+        <span class="finding-title">26. JWT secret loaded at module import time</span>
+        <span class="finding-location">routes.py:19-24 + session.ts:3-6 — both lazy-loaded</span>
+        <span class="toggle-icon">▶</span>
+      </div>
+      <div class="finding-body">
+        <code>os.environ.get("WS_JWT_SECRET")</code> was checked at module level in two places, crashing the process if the env var was absent even if the auth function never ran. The Docker frontend build failed for this reason.
+        <p><strong>✅ Resolved (2026-05-19):</strong></p>
+        <ul>
+          <li><code>frontend/src/lib/session.ts</code>: moved <code>process.env.WS_JWT_SECRET</code> check inside <code>createWsToken()</code> — lazy loading</li>
+          <li><code>packages/chat-orchestrator/src/chat_orchestrator/routes.py</code>: replaced module-level <code>WS_JWT_SECRET</code> constant with <code>_get_ws_jwt_secret()</code> function — lazy loading</li>
+          <li>Docker frontend image rebuilt successfully (<code>preteaporter-frontend:latest</code>)</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="finding important">
+      <div class="finding-header" onclick="this.nextElementSibling.classList.toggle('open');this.querySelector('.toggle-icon').classList.toggle('open')">
+        <span class="severity-tag">Important</span>
+        <span class="finding-title">30. No timeout on graph/ainvoke calls — LLM hang blocks indefinitely</span>
+        <span class="finding-location">packages/homily-agent/src/homily_agent/main.py:124</span>
+        <span class="toggle-icon">▶</span>
+      </div>
+      <div class="finding-body">
+        <code>graph.invoke()</code> (and eventually <code>graph.ainvoke()</code>) has no timeout. If the LLM or RAG service hangs, the request remains pending forever, tying up the asyncio worker and leaking resources. Neither LangGraph's <code>ainvoke()</code> nor the FastAPI route handler imposes a timeout.
+      </div>
+    </div>
+
+    <div class="finding important">
+      <div class="finding-header" onclick="this.nextElementSibling.classList.toggle('open');this.querySelector('.toggle-icon').classList.toggle('open')">
+        <span class="severity-tag">Important</span>
+        <span class="finding-title">31. <code>_format_node</code> discards format results — dead formatting work</span>
+        <span class="finding-location">packages/homily-agent/src/homily_agent/graph.py:125-130</span>
+        <span class="toggle-icon">▶</span>
+      </div>
+      <div class="finding-body">
+        Same pattern as #9: <code>_format_node</code> calls <code>agent.format_response()</code> (which does real work — <code>_format_homily_text</code>) but never applies the return value. Even if it did, the returned keys (<code>"homily"</code>, <code>"formatted_text"</code>, <code>"sources"</code>) don't match existing state fields (<code>generated_homily</code>, <code>theological_sources</code>). The formatting computation is wasted on every invocation.
+      </div>
+    </div>
+  </div>
+</section>
+
+<section style="max-width:1200px;margin:0 auto 40px;padding:0 24px">
+  <!-- MINOR -->
+  <div class="section-title">
+    🔵 Minor
+    <span class="badge" style="background:var(--minor-bg);color:var(--minor)">3 issues</span>
+  </div>
+  <div class="bubble-grid">
+    <div class="finding minor">
+      <div class="finding-header" onclick="this.nextElementSibling.classList.toggle('open');this.querySelector('.toggle-icon').classList.toggle('open')">
+        <span class="severity-tag">Minor</span>
+        <span class="finding-title">27. <code>datetime.utcnow()</code> deprecated in Python 3.12</span>
+        <span class="finding-location">packages/liturgy-agent/src/liturgy_agent/cache.py:94</span>
+        <span class="toggle-icon">▶</span>
+      </div>
+      <div class="finding-body">
+        Uses <code>datetime.utcnow()</code> which is deprecated. Should use <code>datetime.now(datetime.UTC)</code> for timezone-aware operations.
+      </div>
+    </div>
+
+    <div class="finding minor">
+      <div class="finding-header" onclick="this.nextElementSibling.classList.toggle('open');this.querySelector('.toggle-icon').classList.toggle('open')">
+        <span class="severity-tag">Minor</span>
+        <span class="finding-title">28. <code>Math.random()</code> used for session IDs instead of <code>crypto.randomUUID()</code></span>
+        <span class="finding-location">frontend/src/components/Chat.tsx:20</span>
+        <span class="toggle-icon">▶</span>
+      </div>
+      <div class="finding-body">
+        <code>Math.random().toString(36).substring(7)</code> is not cryptographically secure and has limited entropy (~53 bits vs 122 bits for UUIDv4). Should use <code>crypto.randomUUID()</code>.
+      </div>
+    </div>
+
+    <div class="finding minor">
+      <div class="finding-header" onclick="this.nextElementSibling.classList.toggle('open');this.querySelector('.toggle-icon').classList.toggle('open')">
+        <span class="severity-tag">Minor</span>
+        <span class="finding-title">29. <code>PreferencePicker</code> is read-only but named like an interactive picker</span>
+        <span class="finding-location">frontend/src/components/messages/PreferencePicker.tsx:1</span>
+        <span class="toggle-icon">▶</span>
+      </div>
+      <div class="finding-body">
+        Component name implies it allows picking/selecting preferences, but it is <strong>read-only</strong> — it only displays preferences. Should be named <code>PreferenceDisplay</code> or similar. Also uses array index as React key in three <code>.map()</code> calls.
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ROOT CAUSE DIAGRAM -->
+<section>
+  <div class="section-title">
+    🧩 Root Cause Analysis
+    <span class="badge" style="background:#f1f5f9;color:#475569">SYSTEMIC PATTERNS</span>
+  </div>
+  <div class="diagram-container">
+    <svg class="diagram-svg" viewBox="0 0 760 300" width="760" height="300" xmlns="http://www.w3.org/2000/svg">
+      <!-- Center: Root causes -->
+      <rect x="250" y="110" width="260" height="80" rx="40" fill="#fef2f2" stroke="#dc2626" stroke-width="2.5"/>
+      <text x="380" y="146" text-anchor="middle" font-size="14" font-weight="700" fill="#dc2626">Systemic Root Causes</text>
+      <text x="380" y="168" text-anchor="middle" font-size="11" fill="#7f1d1d">5 patterns generating 70% of all issues</text>
+
+      <!-- Top causes -->
+      <rect x="30" y="30" width="190" height="60" rx="8" fill="#fef2f2" stroke="#fca5a5" stroke-width="1.5"/>
+      <text x="125" y="55" text-anchor="middle" font-size="13" font-weight="600" fill="#b91c1c">Path Inconsistency</text>
+      <text x="125" y="73" text-anchor="middle" font-size="10" fill="#7f1d1d">backend/ vs packages/</text>
+      <line x1="125" y1="90" x2="300" y2="120" stroke="#fca5a5" stroke-width="1.5" stroke-dasharray="4"/>
+
+      <rect x="285" y="30" width="190" height="60" rx="8" fill="#fef2f2" stroke="#fca5a5" stroke-width="1.5"/>
+      <text x="380" y="55" text-anchor="middle" font-size="13" font-weight="600" fill="#b91c1c">Dead / Untested Code</text>
+      <text x="380" y="73" text-anchor="middle" font-size="10" fill="#7f1d1d">cache off, validation no-op</text>
+      <line x1="380" y1="90" x2="360" y2="115" stroke="#fca5a5" stroke-width="1.5" stroke-dasharray="4"/>
+
+      <rect x="540" y="30" width="190" height="60" rx="8" fill="#fef2f2" stroke="#fca5a5" stroke-width="1.5"/>
+      <text x="635" y="55" text-anchor="middle" font-size="13" font-weight="600" fill="#b91c1c">No Error Boundaries</text>
+      <text x="635" y="73" text-anchor="middle" font-size="10" fill="#7f1d1d">uncaught exceptions everywhere</text>
+      <line x1="635" y1="90" x2="480" y2="120" stroke="#fca5a5" stroke-width="1.5" stroke-dasharray="4"/>
+
+      <!-- Bottom consequences -->
+      <rect x="120" y="210" width="190" height="60" rx="8" fill="#fef2f2" stroke="#fca5a5" stroke-width="1.5"/>
+      <text x="215" y="235" text-anchor="middle" font-size="13" font-weight="600" fill="#b91c1c">5 broken file references</text>
+      <text x="215" y="253" text-anchor="middle" font-size="10" fill="#7f1d1d">docs, scripts, CI all broken</text>
+      <line x1="300" y1="185" x2="215" y2="215" stroke="#fca5a5" stroke-width="1.5" stroke-dasharray="4"/>
+
+      <rect x="440" y="210" width="200" height="60" rx="8" fill="#fef2f2" stroke="#fca5a5" stroke-width="1.5"/>
+      <text x="540" y="235" text-anchor="middle" font-size="13" font-weight="600" fill="#b91c1c">2 critical features broken</text>
+      <text x="540" y="253" text-anchor="middle" font-size="10" fill="#7f1d1d">A2A HTTP &amp; liturgy reading</text>
+      <line x1="450" y1="185" x2="540" y2="215" stroke="#fca5a5" stroke-width="1.5" stroke-dasharray="4"/>
+    </svg>
+  </div>
+</section>
+
+<!-- SEVERITY TABLE -->
+<section>
+  <div class="section-title">
+    📋 Severity Distribution
+    <span class="badge" style="background:#f1f5f9;color:#475569">BY LAYER</span>
+  </div>
+  <div class="diagram-container" style="padding:16px 32px 24px">
+    <table style="width:100%;border-collapse:collapse;font-size:0.9rem">
+      <thead>
+        <tr style="border-bottom:2px solid #e2e8f0">
+          <th style="text-align:left;padding:10px 8px;font-weight:600;color:var(--text-secondary)">Layer</th>
+          <th style="text-align:center;padding:10px 8px;color:var(--critical);font-weight:600">Critical</th>
+          <th style="text-align:center;padding:10px 8px;color:var(--important);font-weight:600">Important</th>
+          <th style="text-align:center;padding:10px 8px;color:var(--minor);font-weight:600">Minor</th>
+          <th style="text-align:center;padding:10px 8px;font-weight:600;color:var(--accent)">Total</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr style="border-bottom:1px solid #f1f5f9">
+          <td style="padding:10px 8px;font-weight:500">Frontend</td>
+          <td style="text-align:center;padding:10px 8px">4</td>
+          <td style="text-align:center;padding:10px 8px">8</td>
+          <td style="text-align:center;padding:10px 8px">2</td>
+          <td style="text-align:center;padding:10px 8px;font-weight:700">14</td>
+        </tr>
+        <tr style="border-bottom:1px solid #f1f5f9">
+          <td style="padding:10px 8px;font-weight:500">Chat Orchestrator</td>
+          <td style="text-align:center;padding:10px 8px">0</td>
+          <td style="text-align:center;padding:10px 8px">3</td>
+          <td style="text-align:center;padding:10px 8px">0</td>
+          <td style="text-align:center;padding:10px 8px;font-weight:700">3</td>
+        </tr>
+        <tr style="border-bottom:1px solid #f1f5f9">
+          <td style="padding:10px 8px;font-weight:500">Liturgy Agent</td>
+          <td style="text-align:center;padding:10px 8px">1</td>
+          <td style="text-align:center;padding:10px 8px">4</td>
+          <td style="text-align:center;padding:10px 8px">1</td>
+          <td style="text-align:center;padding:10px 8px;font-weight:700">6</td>
+        </tr>
+        <tr style="border-bottom:1px solid #f1f5f9">
+          <td style="padding:10px 8px;font-weight:500">Homily Agent</td>
+          <td style="text-align:center;padding:10px 8px">3</td>
+          <td style="text-align:center;padding:10px 8px">6</td>
+          <td style="text-align:center;padding:10px 8px">1</td>
+          <td style="text-align:center;padding:10px 8px;font-weight:700">10</td>
+        </tr>
+        <tr style="border-bottom:1px solid #f1f5f9">
+          <td style="padding:10px 8px;font-weight:500">A2A Protocol</td>
+          <td style="text-align:center;padding:10px 8px">1</td>
+          <td style="text-align:center;padding:10px 8px">1</td>
+          <td style="text-align:center;padding:10px 8px">0</td>
+          <td style="text-align:center;padding:10px 8px;font-weight:700">2</td>
+        </tr>
+        <tr style="border-bottom:1px solid #f1f5f9">
+          <td style="padding:10px 8px;font-weight:500">Infrastructure</td>
+          <td style="text-align:center;padding:10px 8px">1</td>
+          <td style="text-align:center;padding:10px 8px">0</td>
+          <td style="text-align:center;padding:10px 8px">0</td>
+          <td style="text-align:center;padding:10px 8px;font-weight:700">1</td>
+        </tr>
+        <tr style="border-bottom:2px solid #e2e8f0">
+          <td style="padding:10px 8px;font-weight:500">Documentation / Spec</td>
+          <td style="text-align:center;padding:10px 8px">0</td>
+          <td style="text-align:center;padding:10px 8px">4</td>
+          <td style="text-align:center;padding:10px 8px">0</td>
+          <td style="text-align:center;padding:10px 8px;font-weight:700">4</td>
+        </tr>
+        <tr style="font-weight:700;background:#f8fafc">
+          <td style="padding:12px 8px">Total</td>
+          <td style="text-align:center;padding:12px 8px;color:var(--critical)">10</td>
+          <td style="text-align:center;padding:12px 8px;color:var(--important)">25</td>
+          <td style="text-align:center;padding:12px 8px;color:var(--minor)">4</td>
+          <td style="text-align:center;padding:12px 8px;color:var(--accent)">39</td>
+        </tr>
+      </tbody>
+    </table>
+    <p style="margin-top:8px;font-size:0.8rem;color:var(--text-secondary);text-align:right">
+      * Count includes issues beyond the top 30 for completeness
+    </p>
+  </div>
+</section>
+
+<!-- RECOMMENDATIONS -->
+<section>
+  <div class="section-title">
+    🎯 Recommended Fix Order
+    <span class="badge" style="background:#dcfce7;color:#16a34a">TRIAGE</span>
+  </div>
+  <div class="diagram-container">
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px">
+      <div style="background:#fef2f2;border:2px solid var(--critical);border-radius:10px;padding:16px">
+        <div style="font-weight:700;color:var(--critical);margin-bottom:8px;font-size:1rem">🔴 Immediate</div>
+        <ol style="margin-left:16px;font-size:0.85rem;color:var(--text-secondary);line-height:1.8">
+          <li>Rotate leaked secrets (Google API key, WS_JWT_SECRET)</li>
+          <li>Remove <code>.env.local</code> from git tracking</li>
+          <li>Fix A2A transport URL route mismatch</li>
+          <li>Fix <code>state.occasion</code> → date parameter</li>
+          <li>Add <code>SessionProvider</code> to root layout</li>
+          <li>Fix blocking <code>graph.invoke()</code> → <code>ainvoke()</code></li>
+          <li>Fix <code>_validate_node</code> to use validation results</li>
+        </ol>
+      </div>
+      <div style="background:#fff7ed;border:2px solid var(--important);border-radius:10px;padding:16px">
+        <div style="font-weight:700;color:var(--important);margin-bottom:8px;font-size:1rem">🟠 This Sprint</div>
+        <ol start="8" style="margin-left:16px;font-size:0.85rem;color:var(--text-secondary);line-height:1.8">
+          <li>Add server-side password validation</li>
+          <li>Fix CORS origins to be configurable</li>
+          <li>Fix VaticanScraper URL or remove it</li>
+          <li>Remove <code>if False</code> from cache guard</li>
+          <li>Fix <code>contracts/pyproject.toml</code> path</li>
+          <li>Fix docker-compose <code>localhost</code> → service name</li>
+          <li>Add timeout to graph execution</li>
+        </ol>
+      </div>
+      <div style="background:#eff6ff;border:2px solid var(--minor);border-radius:10px;padding:16px">
+        <div style="font-weight:700;color:var(--minor);margin-bottom:8px;font-size:1rem">🔵 Backlog</div>
+        <ol start="15" style="margin-left:16px;font-size:0.85rem;color:var(--text-secondary);line-height:1.8">
+          <li>Unify Bible abbreviations across agents</li>
+          <li>Add dark mode config (or remove dead classes)</li>
+          <li>Replace <code>Math.random()</code> with <code>crypto.randomUUID()</code></li>
+          <li>Add WebSocket heartbeat mechanism</li>
+          <li>Fix <code>_chunk_text</code> overlap validation</li>
+          <li>Fix <code>prose-liturgy</code> typography class</li>
+          <li>Update <code>datetime.utcnow()</code> calls</li>
+          <li>Fix <code>Occasion</code> contract/code mismatch</li>
+        </ol>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div class="footer">
+  Generated from code review — Prete-a-porter project · May 2026
+</div>
+
+
+<!-- E2E TEST INVESTIGATION -->
+<section>
+  <div class="section-title">
+    🔬 E2E Test Failure Analysis — 34 failures
+    <span class="badge" style="background:#f1f5f9;color:#475569">NEW</span>
+  </div>
+  <div class="diagram-container" style="padding:16px 32px 24px">
+    <p style="margin-bottom:16px;font-size:0.9rem;color:var(--text-secondary)">
+      Investigation of 41 collected items: <strong>7 passed</strong>, <strong>11 failed</strong>, <strong>1 skipped</strong>, <strong>26 errors</strong>.
+      Two independent root causes drive all 34 failures.
+    </p>
+
+    <h3 style="margin:16px 0 8px;font-size:1rem">Root Cause A: 401 Unauthorized — 11 FAILURES</h3>
+    <table style="width:100%;border-collapse:collapse;font-size:0.85rem">
+      <thead>
+        <tr style="border-bottom:2px solid #e2e8f0">
+          <th style="text-align:left;padding:8px;font-weight:600">Aspect</th>
+          <th style="text-align:left;padding:8px;font-weight:600">Detail</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr style="border-bottom:1px solid #f1f5f9">
+          <td style="padding:8px;font-weight:500">What fails</td>
+          <td style="padding:8px">7 homily contract tests <code>(localhost:8002)</code> + 4 liturgy contract tests <code>(localhost:8001)</code></td>
+        </tr>
+        <tr style="border-bottom:1px solid #f1f5f9">
+          <td style="padding:8px;font-weight:500">Error</td>
+          <td style="padding:8px"><code>401 Unauthorized</code> or <code>KeyError: 'result'</code> (liturgy tests return raw error body)</td>
+        </tr>
+        <tr style="border-bottom:1px solid #f1f5f9">
+          <td style="padding:8px;font-weight:500">Mechanism</td>
+          <td style="padding:8px">Both agents use HTTP Basic Auth via <code>_basic_auth_middleware</code> (<code>packages/a2a-protocol/src/a2a_protocol/server.py:401</code>). Credentials from <code>.env</code>: <code>A2A_BASIC_AUTH_USERNAME=a2a</code>, <code>A2A_BASIC_AUTH_PASSWORD=change-me-in-production</code>. The <code>/health</code> endpoint bypasses auth, so <code>is_agent_available()</code> returns <code>True</code> — but all A2A <code>POST /</code> requests fail.</td>
+        </tr>
+        <tr style="border-bottom:1px solid #f1f5f9">
+          <td style="padding:8px;font-weight:500">Why tests don't send auth</td>
+          <td style="padding:8px">The <code>make_message_send</code> helper in both <code>test_homily_contract.py:63</code> and <code>test_liturgy_contract.py:83</code> doesn't include <code>Authorization</code> headers. The <code>http_client</code> fixture creates a plain <code>httpx.Client(timeout=30.0)</code> with no auth configured.</td>
+        </tr>
+        <tr>
+          <td style="padding:8px;font-weight:500">Fix</td>
+          <td style="padding:8px">Add <code>auth=httpx.BasicAuth("a2a", "change-me-in-production")</code> to the <code>http_client</code> fixture and to <code>make_message_send</code>. Either hardcode (from env vars) or read from <code>.env</code>.</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h3 style="margin:16px 0 8px;font-size:1rem">Root Cause B: Docker services not healthy — 26 ERRORS</h3>
+    <table style="width:100%;border-collapse:collapse;font-size:0.85rem">
+      <thead>
+        <tr style="border-bottom:2px solid #e2e8f0">
+          <th style="text-align:left;padding:8px;font-weight:600">Aspect</th>
+          <th style="text-align:left;padding:8px;font-weight:600">Detail</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr style="border-bottom:1px solid #f1f5f9">
+          <td style="padding:8px;font-weight:500">What fails</td>
+          <td style="padding:8px">All tests depending on the <code>docker_compose</code> session fixture: e2e tests for chat-orchestrator, homily-agent, liturgy-agent, and full flow scenarios</td>
+        </tr>
+        <tr style="border-bottom:1px solid #f1f5f9">
+          <td style="padding:8px;font-weight:500">Error</td>
+          <td style="padding:8px"><code>Failed: Services did not become healthy within {timeout}s</code> (bug: <code>{timeout}</code> is literal because the string isn't an f-string — <code>contracts/tests/conftest.py:55</code>)</td>
+        </tr>
+        <tr style="border-bottom:1px solid #f1f5f9">
+          <td style="padding:8px;font-weight:500">Mechanism</td>
+          <td style="padding:8px">The fixture runs <code>docker compose up -d --build</code> (rebuilds images) then polls <code>docker compose ps --format json</code> every 3s for up to 120s. Services filtered: excludes <code>a2a-inspector</code>. All others must have <code>Health: "healthy"</code>. The frontend has no health check so it's excluded.</td>
+        </tr>
+        <tr style="border-bottom:1px solid #f1f5f9">
+          <td style="padding:8px;font-weight:500">Why it times out</td>
+          <td style="padding:8px"><code>--build</code> rebuilds the chat-orchestrator image (UV sync + build: ~30-60s). After rebuild, health checks start after <code>start_period: 10s</code> (chat-orchestrator), with <code>interval: 30s</code> and <code>retries: 3</code> — up to 100s to become healthy. Combined build + health check exceeds 120s.</td>
+        </tr>
+        <tr>
+          <td style="padding:8px;font-weight:500">Fix</td>
+          <td style="padding:8px">Options: (a) increase timeout to 240s, (b) run with <code>--no-docker</code> flag when services are already running, (c) add proper f-string to error message, (d) skip the <code>--build</code> flag for non-image changes.</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h3 style="margin:16px 0 8px;font-size:1rem">Tests That Pass (7)</h3>
+    <p style="font-size:0.85rem;color:var(--text-secondary)">
+      ✅ <code>TestChatOrchestratorContract.test_health</code> — relies on WS JWT only (no basic auth)<br>
+      ✅ 2 WebSocket chat tests (<code>test_websocket_chat</code>, <code>test_websocket_multiple_messages</code>) — now with valid JWTs<br>
+      ✅ <code>TestHomilyContractDefinition.test_contract_loads</code> — static file, no network<br>
+      ✅ <code>TestHomilyContractDefinition.test_contract_occasion_enum_uses_marriage</code> — regression test for #11<br>
+      ✅ 2 WebSocket e2e tests — already fixed with JWT auth
+    </p>
+  </div>
+</section>
+
+<script>
+  // Open first finding of each severity by default
+  document.addEventListener('DOMContentLoaded', function() {
+    document.querySelectorAll('.finding-body').forEach(function(el, i) {
+      if (i < 2) { // open first 2
+        el.classList.add('open');
+        el.previousElementSibling.querySelector('.toggle-icon').classList.add('open');
+      }
+    });
+  });
+</script>
+</body>
+</html>

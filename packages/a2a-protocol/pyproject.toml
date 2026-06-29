@@ -1,0 +1,79 @@
+[project]
+name = "a2a-protocol"
+version = "0.1.0"
+description = "A2A (Agent-to-Agent) protocol library for inter-agent communication"
+readme = "README.md"
+authors = [{name = "Prete-a-porter Contributors", email = "contributors@preteaporter.local"}]
+license = {text = "AGPL-3.0-only"}
+requires-python = ">=3.12"
+dependencies = [
+    "pydantic>=2.0.0",
+    "httpx>=0.25.0",
+    "fastapi>=0.136.1",
+    "sse-starlette>=3.4.4",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.23.0",
+    "pytest-cov>=4.1.0",
+]
+anthropic = ["langchain-anthropic"]
+google = ["langchain-google-genai"]
+openai = ["langchain-openai"]
+
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = [
+    "--strict-markers",
+    "--strict-config",
+    "--verbose",
+]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+
+[tool.coverage.run]
+source = ["src"]
+branch = true
+omit = [
+    "*/tests/*",
+    "*/test_*",
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if 0:",
+    "if __name__ == .__main__.:",
+    "class .*\\bProtocol\\):",
+    "@(abc\\.)?abstractmethod",
+]
+
+
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "W", "F", "I", "B", "C4", "UP", "SIM"]
+ignore = ["E501"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+warn_return_any = true
