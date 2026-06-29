@@ -564,40 +564,60 @@ OpenAI-compatible providers (Fireworks, Groq, Together, Ollama, vLLM) all use
 
 ### Test Locations
 
-| Agent | Path | Test Count |
-|-------|------|------------|
-| A2A Protocol | `packages/a2a-protocol/tests/` | 3 files |
-| Chat Orchestrator | `packages/chat-orchestrator/tests/` | 3 files |
-| Liturgy Agent | `packages/liturgy-agent/tests/` | 4 files |
-| Homily Agent | `packages/homily-agent/tests/` | 4 files (1 subdirectory) |
-| **Total** | | **14 test files** |
+| Location | Path | Files | Layer |
+|----------|------|:-----:|-------|
+| A2A Protocol | `packages/a2a-protocol/tests/` | 3 | Unit |
+| Chat Orchestrator | `packages/chat-orchestrator/tests/` | 2 | Unit |
+| Liturgy Agent | `packages/liturgy-agent/tests/` | 3 | Unit |
+| Homily Agent | `packages/homily-agent/tests/` | 3 | Unit |
+| Contracts | `contracts/tests/` | 7 | Static + Live + E2E |
+| **Total** | | **18 test files** | |
 
 ### Running Tests
 
 ```bash
-# All tests
-pytest
+# --- Package unit tests ---
+cd packages/a2a-protocol && uv run pytest -v
+cd packages/liturgy-agent && uv run python -m pytest -v
+cd packages/homily-agent && uv run python -m pytest -v
+cd packages/chat-orchestrator && uv run pytest -v
 
-# Specific agent
-pytest packages/liturgy-agent/tests/
+# --- Contract tests (static definition, no agents needed) ---
+cd contracts && uv run pytest tests/test_liturgy_contract.py::TestContractCompliance \
+               tests/test_homily_contract.py::TestHomilyContractDefinition -v
 
-# With coverage
-pytest --cov=packages.liturgy-agent.src.liturgy_agent packages/liturgy-agent/tests/
+# --- Contract tests (full suite via Docker Compose) ---
+cd contracts && uv run pytest tests/ -v
 
-# Specific module
-pytest packages/a2a-protocol/tests/test_transport_routes.py -v
+# --- Contract tests (services already running) ---
+cd contracts && uv run pytest tests/ -v --no-docker
 
-# Skip Docker-dependent tests
-pytest -m "not docker"
+# --- With coverage ---
+cd packages/liturgy-agent && uv run python -m pytest --cov=src/liturgy_agent tests/
+
+# --- Specific module ---
+cd packages/a2a-protocol && uv run pytest tests/test_transport_routes.py -v
 ```
+
+> **Note:** Contract live/E2E tests require running agents. Start them via
+> `docker compose up -d --build liturgy-agent homily-agent chat-orchestrator`
+> or let `conftest.py` manage Docker Compose automatically. See
+> [`contracts/README.md`](contracts/README.md) for env requirements.
 
 ### Test Categories
 
-| Type | Scope | Notes |
-|------|-------|-------|
-| Unit | Individual modules, isolated | Fast, no external dependencies |
-| Integration | Agent boundaries, A2A communication | Requires agent servers running |
-| E2E | Full user → chat → agent flows | Requires Docker Compose |
+| Type | Scope | Location | Notes |
+|------|-------|----------|-------|
+| Unit | Individual modules, isolated | `packages/*/tests/` | Fast, no external dependencies, uses mocks |
+| Contract definition | Static JSON contract validation | `contracts/tests/test_*_contract.py` | No agents needed; validates fields, methods, error codes |
+| Live agent | A2A message/send against running agent | `contracts/tests/test_*_contract.py` | Requires agents on ports 8001/8002; skips if unreachable |
+| E2E | Full user → chat → agent flows | `contracts/tests/test_*_e2e.py` | Requires Docker Compose or `--no-docker` with running services |
+
+### CI
+
+Contract tests run on push/PR to `main` via
+[`.github/workflows/contract-tests.yml`](.github/workflows/contract-tests.yml).
+See [`contracts/README.md`](contracts/README.md) for full details.
 
 ---
 
