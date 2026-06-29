@@ -9,7 +9,7 @@ An autonomous liturgical data retrieval agent for the Prete-a-porter system. See
 pip install -r requirements.txt
 
 # Run tests
-pytest packages/liturgy-agent/tests/ -v
+cd packages/liturgy-agent && uv run python -m pytest -v
 
 # Start A2A server (stdio mode, default)
 python -m liturgy_agent.main
