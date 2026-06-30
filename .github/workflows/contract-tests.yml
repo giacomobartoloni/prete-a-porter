@@ -109,6 +109,7 @@ jobs:
         env:
           A2A_LITURGY_URL: http://localhost:8001
           A2A_HOMILY_URL: http://localhost:8002
+          WS_JWT_SECRET: test-jwt-secret-for-ci
 
       - name: Upload test results
         uses: actions/upload-artifact@v4
