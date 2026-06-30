@@ -14,6 +14,7 @@ import {
 } from '@/types';
 import { MessageRenderer } from './messages';
 import { getConversation, createConversation, updateConversation } from '@/lib/conversations';
+import { generateId } from '@/lib/id';
 
 function getHistoryFromMessages(msgs: RichMessage[]): HistoryMessage[] {
   return msgs.map(m => {
@@ -39,7 +40,7 @@ function parseAssistantMessage(content: string): RichMessage {
       return {
         type: 'assistant',
         contentType: 'liturgical',
-        id: crypto.randomUUID(),
+        id: generateId(),
         data: parsed.readings || parsed,
         timestamp: Date.now(),
       } as LiturgicalMessage;
@@ -49,7 +50,7 @@ function parseAssistantMessage(content: string): RichMessage {
       return {
         type: 'assistant',
         contentType: 'homily',
-        id: crypto.randomUUID(),
+        id: generateId(),
         homily: parsed.homily || parsed,
         sources: parsed.sources,
         timestamp: Date.now(),
@@ -60,7 +61,7 @@ function parseAssistantMessage(content: string): RichMessage {
       return {
         type: 'assistant',
         contentType: 'preferences',
-        id: crypto.randomUUID(),
+        id: generateId(),
         preferences: parsed.preferences || parsed,
         timestamp: Date.now(),
       } as PreferenceMessage;
@@ -75,7 +76,7 @@ function parseAssistantMessage(content: string): RichMessage {
         return {
           type: 'assistant',
           contentType: 'text',
-          id: crypto.randomUUID(),
+          id: generateId(),
           content: text,
           timestamp: Date.now(),
         } as TextMessage;
@@ -88,7 +89,7 @@ function parseAssistantMessage(content: string): RichMessage {
   return {
     type: 'assistant',
     contentType: 'text',
-    id: crypto.randomUUID(),
+    id: generateId(),
     content: content,
     timestamp: Date.now(),
   } as TextMessage;
@@ -263,7 +264,7 @@ export default function Chat({ conversationId }: { conversationId: string | null
     const userMessage: TextMessage = {
       type: 'user',
       contentType: 'text',
-      id: crypto.randomUUID(),
+      id: generateId(),
       content: text,
       timestamp: Date.now(),
     };
