@@ -36,6 +36,10 @@ jobs:
         working-directory: packages/homily-agent
         run: uv sync
 
+      - name: Install chat-orchestrator package
+        working-directory: packages/chat-orchestrator
+        run: uv sync
+
       - name: Install contract test dependencies
         working-directory: contracts
         run: uv sync
@@ -46,8 +50,8 @@ jobs:
           uv run python -m liturgy_agent.main --port 8001 &
           echo "LITURGY_PID=$!" >> $GITHUB_ENV
         env:
-          # Use mock LLM if no API keys available
-          LITURGY_LLM_PROVIDER: mock
+          TEST_MODE: true
+          DATABASE_PATH: /tmp/liturgy_cache.db
 
       - name: Start homily agent
         working-directory: packages/homily-agent
@@ -55,8 +59,20 @@ jobs:
           uv run python -m homily_agent.main --port 8002 &
           echo "HOMILY_PID=$!" >> $GITHUB_ENV
         env:
-          # Use mock LLM if no API keys available
-          HOMILY_LLM_PROVIDER: mock
+          TEST_MODE: true
+
+      - name: Start chat orchestrator
+        working-directory: packages/chat-orchestrator
+        run: |
+          uv run python -m chat_orchestrator.main &
+          echo "CHAT_PID=$!" >> $GITHUB_ENV
+        env:
+          TEST_MODE: true
+          DATABASE_PATH: /tmp/chat_orchestrator.db
+          WS_JWT_SECRET: test-jwt-secret-for-ci
+          A2A_LITURGY_URL: http://localhost:8001
+          A2A_HOMILY_URL: http://localhost:8002
+          CORS_ORIGINS: http://localhost:3000
 
       - name: Wait for agents to be ready
         run: |
@@ -78,12 +94,22 @@ jobs:
             sleep 1
           done
 
+          echo "Waiting for chat orchestrator on port 8000..."
+          for i in {1..30}; do
+            if curl -s http://localhost:8000/health > /dev/null 2>&1; then
+              echo "Chat orchestrator is ready"
+              break
+            fi
+            sleep 1
+          done
+
       - name: Run contract tests
         working-directory: contracts
-        run: uv run pytest tests/ -v --junit-xml=test-results.xml
+        run: uv run pytest tests/ -v --no-docker --junit-xml=test-results.xml
         env:
           A2A_LITURGY_URL: http://localhost:8001
           A2A_HOMILY_URL: http://localhost:8002
+          WS_JWT_SECRET: test-jwt-secret-for-ci
 
       - name: Upload test results
         uses: actions/upload-artifact@v4
@@ -101,4 +127,7 @@ jobs:
           fi
           if [ -n "$HOMILY_PID" ]; then
             kill $HOMILY_PID 2>/dev/null || true
+          fi
+          if [ -n "$CHAT_PID" ]; then
+            kill $CHAT_PID 2>/dev/null || true
           fi
