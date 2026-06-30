@@ -5,6 +5,8 @@ services:
   # Chat Orchestrator - WebSocket server on port 8000
   # Coordinates liturgy-agent and homily-agent via A2A protocol
   chat-orchestrator:
+    image: ghcr.io/giacomobartoloni/prete-a-porter-chat-orchestrator:${IMAGE_TAG:-latest}
+    pull_policy: ${PULL_POLICY:-missing}
     build:
       context: .
       dockerfile: packages/chat-orchestrator/Dockerfile
@@ -38,6 +40,8 @@ services:
   # Liturgy Agent - HTTP A2A server on port 8001
   # Provides liturgical content generation and retrieval
   liturgy-agent:
+    image: ghcr.io/giacomobartoloni/prete-a-porter-liturgy-agent:${IMAGE_TAG:-latest}
+    pull_policy: ${PULL_POLICY:-missing}
     build:
       context: .
       dockerfile: packages/liturgy-agent/Dockerfile
@@ -64,6 +68,8 @@ services:
   # Homily Agent - HTTP A2A server on port 8002
   # Provides homily content generation and spiritual guidance
   homily-agent:
+    image: ghcr.io/giacomobartoloni/prete-a-porter-homily-agent:${IMAGE_TAG:-latest}
+    pull_policy: ${PULL_POLICY:-missing}
     build:
       context: .
       dockerfile: packages/homily-agent/Dockerfile
@@ -88,6 +94,8 @@ services:
   # Frontend - Next.js Web UI on port 3000
   # Chat interface connecting to chat-orchestrator via WebSocket
   frontend:
+    image: ghcr.io/giacomobartoloni/prete-a-porter-frontend:${IMAGE_TAG:-latest}
+    pull_policy: ${PULL_POLICY:-missing}
     build:
       context: frontend
       dockerfile: Dockerfile
