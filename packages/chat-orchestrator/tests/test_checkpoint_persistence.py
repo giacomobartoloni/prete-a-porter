@@ -64,10 +64,14 @@ class TestMessageLoop:
     """Checkpoint recovery logic inside _message_loop (routes.py)."""
 
     @pytest.fixture(autouse=True)
-    def _set_rate_limit_env(self, monkeypatch):
+    async def _set_rate_limit_env(self, monkeypatch):
         monkeypatch.setenv("RATE_LIMIT_DB_PATH", ":memory:")
         import chat_orchestrator.routes as routes_mod
         routes_mod._rate_limiter = None
+        yield
+        if routes_mod._rate_limiter is not None:
+            await routes_mod._rate_limiter.close()
+            routes_mod._rate_limiter = None
 
     @pytest.mark.asyncio
     async def test_with_checkpoint_passes_only_new_text(self):
@@ -724,13 +728,20 @@ class TestRateLimiterCheckAndIncrement:
 class TestMessageLoopRateLimit:
     """_message_loop rate limiting via RateLimiter."""
 
-    @pytest.mark.asyncio
-    async def test_rate_limited_message_returns_error(self, monkeypatch):
+    @pytest.fixture(autouse=True)
+    async def _cleanup_rate_limiter(self, monkeypatch):
         monkeypatch.setenv("RATE_LIMIT_MESSAGES_PER_HOUR", "1")
         monkeypatch.setenv("RATE_LIMIT_MESSAGES_PER_DAY", "20")
         monkeypatch.setenv("RATE_LIMIT_DB_PATH", ":memory:")
         import chat_orchestrator.routes as routes_mod
         routes_mod._rate_limiter = None
+        yield
+        if routes_mod._rate_limiter is not None:
+            await routes_mod._rate_limiter.close()
+            routes_mod._rate_limiter = None
+
+    @pytest.mark.asyncio
+    async def test_rate_limited_message_returns_error(self):
 
         ws = MagicMock()
         ws.receive_text = AsyncMock(side_effect=[

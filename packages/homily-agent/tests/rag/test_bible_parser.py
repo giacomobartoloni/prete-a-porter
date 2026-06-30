@@ -1,6 +1,6 @@
 import pytest
 from pathlib import Path
-from homily_agent.rag.bible_parser import Verse, BibleChunk, BibleParser, Chunker
+from homily_agent.rag.bible_parser import Verse, BibleChunk, BibleParser, Chunker, BeautifulSoup
 
 
 class TestVerse:
@@ -27,6 +27,10 @@ class TestBibleChunk:
         assert c.metadata["source"] == "Bible"
 
 
+@pytest.mark.skipif(
+    BeautifulSoup is None,
+    reason="beautifulsoup4 not installed (optional [ml] dependency)",
+)
 class TestBibleParser:
     def test_parse_genesi_creates_verses(self):
         fixture_dir = Path("tests/rag/fixtures")
