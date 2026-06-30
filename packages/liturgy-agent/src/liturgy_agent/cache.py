@@ -23,14 +23,15 @@ class LiturgyCache:
     
     DEFAULT_TTL_HOURS = 24
     
-    def __init__(self, db_path: str = "/app/data/liturgy_cache.db") -> None:
+    def __init__(self, db_path: str | None = None) -> None:
         """
         Initialize cache with database path.
-        
+
         Args:
-            db_path: Path to SQLite database file
+            db_path: Path to SQLite database file. Defaults to DATABASE_PATH
+                     env var, or /app/data/liturgy_cache.db if unset.
         """
-        self.db_path = db_path
+        self.db_path = db_path or os.getenv("DATABASE_PATH", "/app/data/liturgy_cache.db")
         ttl_seconds = os.getenv("CACHE_TTL_SECONDS")
         self.default_ttl_hours = int(ttl_seconds) // 3600 if ttl_seconds else self.DEFAULT_TTL_HOURS
         self.conn = None
