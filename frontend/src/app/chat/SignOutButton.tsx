@@ -12,7 +12,10 @@ export function SignOutButton({ showLabel = false }: SignOutButtonProps) {
   const t = useTranslations("auth.logout")
   return (
     <button
-      onClick={() => signOut({ redirectTo: "/auth/login" })}
+      onClick={async () => {
+        await signOut({ redirect: false })
+        window.location.href = "/auth/login"
+      }}
       aria-label={t("button")}
       className="flex items-center gap-2 px-2 py-1.5 text-sm font-medium text-text-tertiary hover:text-danger bg-transparent rounded-lg hover:bg-danger/10 transition-all w-full"
     >

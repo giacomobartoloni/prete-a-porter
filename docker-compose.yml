@@ -107,6 +107,7 @@ services:
       - WS_JWT_SECRET=${WS_JWT_SECRET}
       - AUTH_SECRET=${AUTH_SECRET}
       - AUTH_TRUST_HOST=true
+      - AUTH_URL=${AUTH_URL:-https://chat.prete-a-porter.dev}
       - DATABASE_URL=file:../data/dev.db
     depends_on:
       chat-orchestrator:

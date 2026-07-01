@@ -17,7 +17,8 @@ export default function LogoutButton({ className = '', variant = 'ghost' }: Logo
   const handleLogout = async () => {
     setIsLoading(true);
     try {
-      await signOut({ callbackUrl: '/auth/login' });
+      await signOut({ redirect: false });
+      window.location.href = '/auth/login';
     } catch (error) {
       console.error('Logout error:', error);
       setIsLoading(false);
