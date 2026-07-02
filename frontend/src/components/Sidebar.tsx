@@ -10,6 +10,7 @@ import {
   Plus,
   Trash2,
   MessageSquare,
+  Shield,
 } from "lucide-react"
 import { ThemeToggle } from "@/components/ThemeToggle"
 import { LocaleToggle } from "@/components/LocaleToggle"
@@ -41,6 +42,7 @@ function formatDate(date: string, locale: string): string {
 export function Sidebar({ email, conversationId }: SidebarProps) {
   const router = useRouter()
   const t = useTranslations('sidebar')
+  const tc = useTranslations('common')
   const locale = useLocale()
   const [expanded, setExpanded] = useState(true)
   const [conversations, setConversations] = useState<Conversation[]>([])
@@ -259,6 +261,16 @@ export function Sidebar({ email, conversationId }: SidebarProps) {
           )}
           <ThemeToggle showLabel={expanded} />
           <LocaleToggle />
+          <a
+            href={process.env.NEXT_PUBLIC_PRIVACY_POLICY_URL ?? 'https://prete-a-porter.dev/privacy/'}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-2 px-2 py-1.5 rounded-lg transition-colors hover:bg-bg-overlay text-text-tertiary w-full"
+            aria-label={tc('privacy_policy')}
+          >
+            <Shield className="w-5 h-5 shrink-0" />
+            {expanded && <span className="text-sm whitespace-nowrap">{tc('privacy_policy')}</span>}
+          </a>
           <SignOutButton showLabel={expanded} />
         </div>
       </aside>

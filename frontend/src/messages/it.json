@@ -1,7 +1,8 @@
 {
   "common": {
     "app_title": "Prete-a-porter",
-    "app_description": "Il ghostwriter per un'omelia perfetta"
+    "app_description": "Il ghostwriter per un'omelia perfetta",
+    "privacy_policy": "Informativa sulla privacy"
   },
   "auth": {
     "login": {
