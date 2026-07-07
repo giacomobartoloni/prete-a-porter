@@ -2,6 +2,7 @@ import { NextIntlClientProvider } from 'next-intl'
 import { getMessages, getTranslations } from 'next-intl/server'
 import '../globals.css'
 import { SessionProvider, ThemeProvider } from '@/components/providers'
+import Script from 'next/script'
 
 export async function generateMetadata() {
   const t = await getTranslations('common')
@@ -29,6 +30,10 @@ export default async function LocaleLayout({
           </SessionProvider>
         </NextIntlClientProvider>
       </body>
+      <Script
+        src="https://scripts.simpleanalyticscdn.com/latest.js"
+        strategy="afterInteractive"
+      />
     </html>
   )
 }
