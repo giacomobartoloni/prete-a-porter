@@ -3,6 +3,7 @@ import type { NextAuthRequest } from "next-auth"
 import createMiddleware from 'next-intl/middleware'
 import { routing } from './i18n/routing'
 import { NextResponse } from 'next/server'
+import type { NextFetchEvent } from 'next/server'
 
 const handleI18n = createMiddleware(routing)
 
@@ -33,10 +34,10 @@ const protectedHandler = auth((req: NextAuthRequest) => {
   return handleI18n(req)
 })
 
-export default function middleware(req: NextAuthRequest) {
+export default function middleware(req: NextAuthRequest, event: NextFetchEvent) {
   const result = handlePublicPaths(req)
   if (result) return result
-  return protectedHandler(req)
+  return protectedHandler(req, event)
 }
 
 export const config = {
