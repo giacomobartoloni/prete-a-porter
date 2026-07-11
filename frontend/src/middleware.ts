@@ -14,14 +14,14 @@ export default auth((req: NextAuthRequest) => {
     return NextResponse.next()
   }
 
-  if (pathname === '/' && isLoggedIn) {
-    return NextResponse.redirect(new URL('/chat', req.url))
+  if (pathname === '/') {
+    if (isLoggedIn) {
+      return NextResponse.redirect(new URL('/chat', req.url))
+    }
+    return NextResponse.redirect(new URL('/auth/login', req.url))
   }
 
-  if (
-    pathname.startsWith('/auth/') ||
-    pathname === '/'
-  ) {
+  if (pathname.startsWith('/auth/')) {
     return handleI18n(req)
   }
 
