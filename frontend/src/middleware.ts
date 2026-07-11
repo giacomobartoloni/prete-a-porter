@@ -37,7 +37,7 @@ const protectedHandler = auth((req: NextAuthRequest) => {
 export default function middleware(req: NextAuthRequest, event: NextFetchEvent) {
   const result = handlePublicPaths(req)
   if (result) return result
-  return protectedHandler(req, event)
+  return protectedHandler(req, event as any)
 }
 
 export const config = {
