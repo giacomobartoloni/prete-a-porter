@@ -23,6 +23,12 @@ export default async function LocaleLayout({
 
   return (
     <html lang={locale} suppressHydrationWarning>
+      <script
+        dangerouslySetInnerHTML={{
+          __html:
+            'window.sa_event=window.sa_event||function(){var a=[].slice.call(arguments);window.sa_event.q?window.sa_event.q.push(a):window.sa_event.q=[a]};',
+        }}
+      />
       <body className="font-sans">
         <NextIntlClientProvider messages={messages}>
           <SessionProvider>

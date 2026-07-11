@@ -5,6 +5,7 @@ import { useTransition } from 'react'
 import { setUserLocale } from '@/lib/locale'
 import { useTranslations } from 'next-intl'
 import { Languages } from 'lucide-react'
+import { track } from '@/lib/analytics'
 
 export function LocaleToggle() {
   const locale = useLocale()
@@ -14,7 +15,10 @@ export function LocaleToggle() {
 
   return (
     <button
-      onClick={() => startTransition(() => setUserLocale(nextLocale))}
+      onClick={() => startTransition(() => {
+        setUserLocale(nextLocale)
+        track('locale_changed', { locale: nextLocale })
+      })}
       disabled={isPending}
       className="flex items-center gap-2 px-2 py-1.5 rounded-lg transition-colors hover:bg-bg-overlay text-text-tertiary w-full"
       aria-label={t('switch_to')}

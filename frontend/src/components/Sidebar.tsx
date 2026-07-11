@@ -21,6 +21,7 @@ import {
   deleteConversation,
 } from "@/lib/conversations"
 import { Conversation } from "@/types"
+import { track } from "@/lib/analytics"
 
 interface SidebarProps {
   email: string | null | undefined
@@ -89,6 +90,7 @@ export function Sidebar({ email, conversationId }: SidebarProps) {
     e.stopPropagation()
     try {
       await deleteConversation(id)
+      track('conversation_deleted')
       if (id === conversationId) {
         router.push("/chat")
       } else {
@@ -119,7 +121,7 @@ export function Sidebar({ email, conversationId }: SidebarProps) {
       )}
 
       <aside
-        onClick={!expanded ? () => setExpanded(true) : undefined}
+        onClick={!expanded ? () => { setExpanded(true); track('sidebar_toggle', { expanded: true }); } : undefined}
         className={cn(
           "flex flex-col h-screen border-r border-border bg-bg-raised/80 backdrop-blur-sm transition-all duration-300 overflow-hidden shrink-0",
           "md:relative",
@@ -168,7 +170,7 @@ export function Sidebar({ email, conversationId }: SidebarProps) {
           </div>
           {expanded && (
             <button
-              onClick={() => setExpanded(false)}
+              onClick={() => { setExpanded(false); track('sidebar_toggle', { expanded: false }); }}
               className="shrink-0 p-1.5 rounded-lg hover:bg-bg-overlay transition-colors text-text-tertiary"
               aria-label={t('collapse')}
             >

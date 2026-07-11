@@ -15,6 +15,7 @@ import {
 import { MessageRenderer } from './messages';
 import { getConversation, createConversation, updateConversation } from '@/lib/conversations';
 import { generateId } from '@/lib/id';
+import { track } from '@/lib/analytics';
 
 function getHistoryFromMessages(msgs: RichMessage[]): HistoryMessage[] {
   return msgs.map(m => {
@@ -164,6 +165,7 @@ export default function Chat({ conversationId }: { conversationId: string | null
           titleSetRef.current = false;
           window.history.replaceState(null, '', `/chat?convId=${conv.id}`);
           window.dispatchEvent(new Event('conversation-created'));
+          track('conversation_created');
         }
 
         if (cancelledRef.current) return;
@@ -204,6 +206,7 @@ export default function Chat({ conversationId }: { conversationId: string | null
             if (data.type === 'message') {
               const content = typeof data.content === 'string' ? data.content : JSON.stringify(data.content);
               const richMessage = parseAssistantMessage(content);
+              track('message_received', { type: richMessage.contentType });
               const currentMsgs = messagesRef.current;
               const updated = [...currentMsgs, richMessage];
               messagesRef.current = updated;
@@ -268,6 +271,11 @@ export default function Chat({ conversationId }: { conversationId: string | null
       content: text,
       timestamp: Date.now(),
     };
+
+    track('message_sent', {
+      length: text.length,
+      isFirst: messagesRef.current.length === 0,
+    });
 
     const updated = [...messagesRef.current, userMessage];
     messagesRef.current = updated;

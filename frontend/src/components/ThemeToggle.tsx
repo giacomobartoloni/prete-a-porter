@@ -5,6 +5,7 @@ import { Sun, Moon } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { useTranslations } from 'next-intl'
 import { cn } from '@/lib/utils'
+import { track } from '@/lib/analytics'
 
 interface ThemeToggleProps {
   showLabel?: boolean
@@ -27,7 +28,11 @@ export function ThemeToggle({ showLabel = false }: ThemeToggleProps) {
 
   return (
     <button
-      onClick={() => setTheme(isDark ? 'light' : 'dark')}
+      onClick={() => {
+        const next = isDark ? 'light' : 'dark'
+        setTheme(next)
+        track('theme_changed', { theme: next })
+      }}
       className={cn(
         'flex items-center gap-2 px-2 py-1.5 rounded-lg transition-colors',
         'hover:bg-bg-overlay text-text-tertiary w-full',

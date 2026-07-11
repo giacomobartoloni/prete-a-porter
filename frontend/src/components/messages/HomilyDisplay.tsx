@@ -1,8 +1,10 @@
 'use client';
 
+import { useEffect } from 'react';
 import { GeneratedHomily } from '@/types';
 import { useTranslations } from 'next-intl';
 import { FileText, BookOpen, Heart, Lightbulb, ArrowRight, ExternalLink } from 'lucide-react';
+import { track } from '@/lib/analytics';
 
 interface HomilyDisplayProps {
   homily: GeneratedHomily;
@@ -18,6 +20,9 @@ const occasionLabels: Record<string, string> = {
 
 export default function HomilyDisplay({ homily, sources }: HomilyDisplayProps) {
   const t = useTranslations('homily');
+  useEffect(() => {
+    track('homily_generated', { occasion: homily.occasion, date: homily.liturgical_date });
+  }, [homily.occasion, homily.liturgical_date]);
   return (
     <div className="bg-bg-card rounded-lg border border-border p-4 max-w-2xl">
       {/* Header */}
