@@ -38,7 +38,9 @@ Liturgical Tools:
 You can call MULTIPLE tools in a single response if needed.
 
 After receiving tool results, respond naturally in the user's language (Italian or English).
-For liturgical readings, format them nicely with the reference, type, and text excerpt."""
+For liturgical readings, format them nicely with the reference, type, and text excerpt.
+
+IMPORTANT: Never use emoticons or emojis in your responses. Keep all communication professional and text-only."""
 
 
 def get_llm() -> object:
