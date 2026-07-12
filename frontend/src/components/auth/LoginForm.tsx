@@ -2,12 +2,10 @@
 
 import { useState } from 'react';
 import { signIn } from 'next-auth/react';
-import { useRouter } from 'next/navigation';
 import { useTranslations } from 'next-intl';
 import { Loader2, Mail, Lock, AlertCircle } from 'lucide-react';
 
 export default function LoginForm() {
-  const router = useRouter();
   const t = useTranslations('auth.login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -38,8 +36,7 @@ export default function LoginForm() {
         return;
       }
 
-      router.push('/chat');
-      router.refresh();
+      window.location.href = '/chat';
     } catch {
       setError(t('error_retry'));
       setIsLoading(false);
