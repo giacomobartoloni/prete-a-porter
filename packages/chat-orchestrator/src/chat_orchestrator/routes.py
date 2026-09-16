@@ -157,37 +157,8 @@ async def _message_loop(websocket: WebSocket, graph, session_id: str, user_id: s
             history = []
 
         try:
-            # Check if checkpointer has state for this thread
-            try:
-                checkpointer = graph.checkpointer
-                checkpoint = await checkpointer.aget_tuple(
-                    {"configurable": {"thread_id": session_id}}
-                )
-                has_checkpoint = checkpoint is not None
-            except Exception:
-                has_checkpoint = False
-
-            if has_checkpoint:
-                stored_user_id = (
-                    checkpoint.checkpoint.get("channel_values", {}).get("user_id")
-                )
-                if stored_user_id != user_id:
-                    logger.warning(
-                        "Session owner mismatch",
-                        session_id=session_id,
-                        expected=stored_user_id,
-                        actual=user_id,
-                    )
-                    try:
-                        await websocket.close(code=4003, reason="Forbidden")
-                    except Exception:
-                        pass
-                    return
-                msgs = [HumanMessage(content=text)]
-            else:
-                # Checkpointer lost — rebuild from history
-                msgs = [HumanMessage(content=h["content"]) for h in history if h.get("content")]
-                msgs.append(HumanMessage(content=text))
+            msgs = [HumanMessage(content=h["content"]) for h in history if h.get("content")]
+            msgs.append(HumanMessage(content=text))
 
             limiter = await get_rate_limiter()
             result = await limiter.check_and_increment(user_id)
@@ -212,7 +183,7 @@ async def _message_loop(websocket: WebSocket, graph, session_id: str, user_id: s
 
             result = await graph.ainvoke(
                 {"messages": msgs, "session_id": session_id, "user_id": user_id},
-                config={"configurable": {"thread_id": session_id}, "recursion_limit": 15},
+                config={"recursion_limit": 15},
             )
 
             ai_messages = [m for m in result["messages"] if isinstance(m, AIMessage)]

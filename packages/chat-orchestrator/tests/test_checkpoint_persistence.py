@@ -29,13 +29,6 @@ class MockCheckpoint:
         self.checkpoint = {"ts": ts}
         self.config = {"configurable": {"thread_id": thread_id}}
 
-class MockCheckpointWithUser:
-    """Simulates a checkpoint with channel_values containing user_id."""
-
-    def __init__(self, user_id: str):
-        self.checkpoint = {"channel_values": {"user_id": user_id}}
-
-
 class RecordingCheckpointer:
     """Test double that records deletions and yields given checkpoints."""
 
@@ -74,35 +67,6 @@ class TestMessageLoop:
             routes_mod._rate_limiter = None
 
     @pytest.mark.asyncio
-    async def test_with_checkpoint_passes_only_new_text(self):
-        """When aget_tuple returns a checkpoint, only the new text is passed."""
-        ws = MagicMock()
-        ws.receive_text = AsyncMock(side_effect=[
-            json.dumps({"text": "new message", "history": [{"content": "old msg"}]}),
-            WebSocketDisconnect(),
-        ])
-        ws.send_json = AsyncMock()
-
-        graph = MagicMock()
-        graph.checkpointer = AsyncMock()
-        graph.checkpointer.aget_tuple.return_value = MockCheckpointWithUser("user-1")
-        graph.ainvoke = AsyncMock(return_value={
-            "messages": [AIMessage(content="response")],
-        })
-
-        try:
-            await _message_loop(ws, graph, "session-1", "user-1", "corr-1")
-        except WebSocketDisconnect:
-            pass
-
-        graph.ainvoke.assert_awaited_once()
-        msgs = graph.ainvoke.call_args[0][0]["messages"]
-        assert len(msgs) == 1
-        assert isinstance(msgs[0], HumanMessage)
-        assert msgs[0].content == "new message"
-        ws.send_json.assert_awaited_once()
-
-    @pytest.mark.asyncio
     async def test_without_checkpoint_rebuilds_from_history(self):
         """When no checkpoint, history + new text are passed."""
         ws = MagicMock()
@@ -130,36 +94,6 @@ class TestMessageLoop:
         assert msgs[0].content == "first"
         assert msgs[1].content == "second"
         assert msgs[2].content == "latest"
-        state = graph.ainvoke.call_args[0][0]
-        assert state["user_id"] == "user-1"
-
-    @pytest.mark.asyncio
-    async def test_checkpointer_error_falls_back_to_history(self):
-        """When aget_tuple raises, treat as no-checkpoint and rebuild."""
-        ws = MagicMock()
-        ws.receive_text = AsyncMock(side_effect=[
-            json.dumps({"text": "new", "history": [{"content": "prev"}]}),
-            WebSocketDisconnect(),
-        ])
-        ws.send_json = AsyncMock()
-
-        graph = MagicMock()
-        graph.checkpointer = AsyncMock()
-        graph.checkpointer.aget_tuple.side_effect = RuntimeError("db down")
-        graph.ainvoke = AsyncMock(return_value={
-            "messages": [AIMessage(content="ok")],
-        })
-
-        try:
-            await _message_loop(ws, graph, "session-1", "user-1", "corr-1")
-        except WebSocketDisconnect:
-            pass
-
-        graph.ainvoke.assert_awaited_once()
-        msgs = graph.ainvoke.call_args[0][0]["messages"]
-        assert len(msgs) == 2
-        assert msgs[0].content == "prev"
-        assert msgs[1].content == "new"
         state = graph.ainvoke.call_args[0][0]
         assert state["user_id"] == "user-1"
 
@@ -193,33 +127,6 @@ class TestMessageLoop:
         assert state["user_id"] == "user-1"
 
     @pytest.mark.asyncio
-    async def test_with_checkpoint_ignores_client_history(self):
-        """Checkpoint present → client history is ignored."""
-        ws = MagicMock()
-        ws.receive_text = AsyncMock(side_effect=[
-            json.dumps({"text": "latest", "history": [{"content": "should be ignored"}]}),
-            WebSocketDisconnect(),
-        ])
-        ws.send_json = AsyncMock()
-
-        graph = MagicMock()
-        graph.checkpointer = AsyncMock()
-        graph.checkpointer.aget_tuple.return_value = MockCheckpointWithUser("user-1")
-        graph.ainvoke = AsyncMock(return_value={
-            "messages": [AIMessage(content="resp")],
-        })
-
-        try:
-            await _message_loop(ws, graph, "session-1", "user-1", "corr-1")
-        except WebSocketDisconnect:
-            pass
-
-        graph.ainvoke.assert_awaited_once()
-        msgs = graph.ainvoke.call_args[0][0]["messages"]
-        assert len(msgs) == 1
-        assert msgs[0].content == "latest"
-
-    @pytest.mark.asyncio
     async def test_without_checkpoint_and_no_history(self):
         """No checkpoint, no history → only new text passed."""
         ws = MagicMock()
@@ -247,87 +154,6 @@ class TestMessageLoop:
         assert msgs[0].content == "hello"
         state = graph.ainvoke.call_args[0][0]
         assert state["user_id"] == "user-1"
-
-    @pytest.mark.asyncio
-    async def test_non_json_with_checkpoint_uses_raw_text(self):
-        """Non-JSON + live checkpoint → raw text, no history."""
-        ws = MagicMock()
-        ws.receive_text = AsyncMock(side_effect=[
-            "raw input",
-            WebSocketDisconnect(),
-        ])
-        ws.send_json = AsyncMock()
-
-        graph = MagicMock()
-        graph.checkpointer = AsyncMock()
-        graph.checkpointer.aget_tuple.return_value = MockCheckpointWithUser("user-1")
-        graph.ainvoke = AsyncMock(return_value={
-            "messages": [AIMessage(content="resp")],
-        })
-
-        try:
-            await _message_loop(ws, graph, "session-1", "user-1", "corr-1")
-        except WebSocketDisconnect:
-            pass
-
-        graph.ainvoke.assert_awaited_once()
-        msgs = graph.ainvoke.call_args[0][0]["messages"]
-        assert len(msgs) == 1
-        assert msgs[0].content == "raw input"
-
-    @pytest.mark.asyncio
-    async def test_missing_checkpointer_falls_back(self):
-        """Missing checkpointer attribute → history rebuild."""
-        ws = MagicMock()
-        ws.receive_text = AsyncMock(side_effect=[
-            json.dumps({"text": "hi", "history": [{"content": "prev"}]}),
-            WebSocketDisconnect(),
-        ])
-        ws.send_json = AsyncMock()
-
-        graph = MagicMock(spec=[])
-        graph.ainvoke = AsyncMock(return_value={
-            "messages": [AIMessage(content="resp")],
-        })
-
-        try:
-            await _message_loop(ws, graph, "session-1", "user-1", "corr-1")
-        except WebSocketDisconnect:
-            pass
-
-        graph.ainvoke.assert_awaited_once()
-        msgs = graph.ainvoke.call_args[0][0]["messages"]
-        assert len(msgs) == 2
-        assert msgs[0].content == "prev"
-        assert msgs[1].content == "hi"
-        state = graph.ainvoke.call_args[0][0]
-        assert state["user_id"] == "user-1"
-
-
-    @pytest.mark.asyncio
-    async def test_mismatched_user_id_closes_websocket(self):
-        """When checkpoint user_id != JWT sub, close with 4003."""
-        ws = MagicMock()
-        ws.receive_text = AsyncMock(side_effect=[
-            json.dumps({"text": "hello"}),
-            WebSocketDisconnect(),
-        ])
-        ws.send_json = AsyncMock()
-        ws.close = AsyncMock()
-
-        graph = MagicMock()
-        graph.checkpointer = AsyncMock()
-        graph.checkpointer.aget_tuple.return_value = MockCheckpointWithUser("alice")
-        graph.ainvoke = AsyncMock()
-
-        try:
-            await _message_loop(ws, graph, "session-1", "bob", "corr-1")
-        except WebSocketDisconnect:
-            pass
-
-        ws.close.assert_awaited_once_with(code=4003, reason="Forbidden")
-        graph.ainvoke.assert_not_called()
-
 
 # ---------------------------------------------------------------------------
 # TestDeleteCheckpoint — DELETE /checkpoints/{session_id}
