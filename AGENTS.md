@@ -182,10 +182,21 @@ A2A protocol, and guides the homily preparation workflow.
 
 ### API Endpoints
 
-| Method | Path | Description |
-|--------|------|-------------|
-| `GET` | `/health` | Health check |
-| `WS` | `/ws/chat/{session_id}` | Real-time chat (JWT authenticated) |
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| `GET` | `/health` | none | Health check |
+| `GET` | `/v1/models` | Bearer | Advertises the model `prete-a-porter` (OpenWebUI) |
+| `POST` | `/v1/chat/completions` | Bearer | Chat completion, buffered or SSE |
+| `WS` | `/ws/chat/{session_id}` | JWT `ws_ticket` | Real-time chat (transitional; the Next.js frontend still uses it) |
+
+The `/v1/*` surface is **stateless**: every request carries its full message
+history, and no checkpointer exists. `ORCHESTRATOR_API_KEY` is the bearer key and
+must not be named `OPENAI_API_KEY`, which is the upstream provider key. Per-user
+identity and the rate-limit key come from `X-OpenWebUI-User-Id`, which OpenWebUI
+forwards when `ENABLE_FORWARD_USER_INFO_HEADERS=True`.
+
+The `/ws/*` path and the Next.js frontend remain until the OpenWebUI cutover is
+verified end to end; see `AgentWorklog` migration plan P6.
 
 ### Architecture
 
@@ -532,11 +543,22 @@ OpenAI-compatible providers (Fireworks, Groq, Together, Ollama, vLLM) all use
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `DATABASE_PATH` | `/app/data/chat_orchestrator.db` | Session database (Docker path) |
-| `WS_JWT_SECRET` | — | JWT secret for WebSocket auth |
+| `ORCHESTRATOR_API_KEY` | — | Bearer key for `/v1/*`. Must not be named `OPENAI_API_KEY`, which is the upstream provider key |
+| `WS_JWT_SECRET` | — | JWT secret for WebSocket auth (transitional) |
 | `CORS_ORIGINS` | `http://localhost:3000` | Allowed CORS origins (comma-separated) |
 | `A2A_LITURGY_URL` | `http://localhost:8001` | Liturgy agent HTTP URL |
 | `A2A_HOMILY_URL` | `http://localhost:8002` | Homily agent HTTP URL |
+| `RATE_LIMIT_MESSAGES_PER_HOUR` | `5` | Per-identity hourly message quota |
+| `RATE_LIMIT_MESSAGES_PER_DAY` | `20` | Per-identity daily message quota |
+
+### OpenWebUI
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `WEBUI_SECRET_KEY` | — | OpenWebUI session signing |
+| `OPENAI_API_BASE_URL` | `http://chat-orchestrator:8000/v1` | Where OpenWebUI sends chat requests |
+| `OPENAI_API_KEY` | `${ORCHESTRATOR_API_KEY}` | OpenWebUI's name for the bearer token it sends |
+| `ENABLE_FORWARD_USER_INFO_HEADERS` | `True` | Sends `X-OpenWebUI-User-Id`, the per-user rate-limit key |
 
 ### Liturgy Agent
 
