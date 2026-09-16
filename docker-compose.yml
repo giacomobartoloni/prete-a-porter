@@ -147,6 +147,8 @@ services:
       - OPENAI_API_BASE_URL=http://chat-orchestrator:8000/v1
       - OPENAI_API_KEY=${ORCHESTRATOR_API_KEY}
       - ENABLE_FORWARD_USER_INFO_HEADERS=True
+      # Per-connection custom header: OpenWebUI substitutes {{CHAT_ID}} per request.
+      - OPENAI_API_CONFIGS={"prete-a-porter":{"headers":{"X-OpenWebUI-Chat-Id":"{{CHAT_ID}}"}}}
       # Disable every auxiliary task that would otherwise hit the orchestrator.
       - ENABLE_TITLE_GENERATION=False
       - ENABLE_TAGS_GENERATION=False

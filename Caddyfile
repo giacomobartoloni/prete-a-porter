@@ -1,16 +1,16 @@
 # Prete-a-porter — Caddy reverse proxy
 # TLS automatico via Let's Encrypt per chat.prete-a-porter.dev
-# /ws/* → chat-orchestrator (WebSocket)
-# /*   → frontend (Next.js)
+# /ws/* → chat-orchestrator (WebSocket, transitional)
+# /*    → openwebui
 
 chat.prete-a-porter.dev {
-	# WebSocket → chat-orchestrator
+	# WebSocket → chat-orchestrator (removed once the WS path is retired)
 	handle /ws/* {
 		reverse_proxy chat-orchestrator:8000
 	}
 
-	# Everything else → Next.js frontend
+	# Everything else → OpenWebUI
 	handle {
-		reverse_proxy frontend:3000
+		reverse_proxy openwebui:8080
 	}
 }
