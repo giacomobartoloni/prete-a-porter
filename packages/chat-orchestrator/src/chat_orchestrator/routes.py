@@ -13,20 +13,10 @@ from langchain_core.messages import AIMessage, HumanMessage
 
 from .exceptions import WebSocketConnectionException, WebSocketMessageException
 from .graph import get_graph
-from .rate_limiter import RateLimiter
+from .rate_limiter import get_rate_limiter
 from .utils.logging import get_logger, set_correlation_id, clear_correlation_id
 
 logger = get_logger(__name__)
-
-_rate_limiter: RateLimiter | None = None
-
-
-async def get_rate_limiter() -> RateLimiter:
-    global _rate_limiter
-    if _rate_limiter is None:
-        _rate_limiter = await RateLimiter.create()
-    return _rate_limiter
-
 
 def _get_ws_jwt_secret() -> str:
     secret = os.environ.get("WS_JWT_SECRET")

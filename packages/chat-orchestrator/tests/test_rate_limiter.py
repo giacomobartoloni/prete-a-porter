@@ -213,7 +213,7 @@ class TestMessageLoopRateLimit:
         monkeypatch.setenv("RATE_LIMIT_MESSAGES_PER_HOUR", "1")
         monkeypatch.setenv("RATE_LIMIT_MESSAGES_PER_DAY", "20")
         monkeypatch.setenv("RATE_LIMIT_DB_PATH", ":memory:")
-        import chat_orchestrator.routes as routes_mod
+        import chat_orchestrator.rate_limiter as routes_mod
         routes_mod._rate_limiter = None
         yield
         if routes_mod._rate_limiter is not None:

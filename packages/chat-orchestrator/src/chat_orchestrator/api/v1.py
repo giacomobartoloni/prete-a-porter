@@ -9,10 +9,13 @@ import logging
 import time
 import uuid
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse
 
 from ..graph import get_graph
+from ..rate_limiter import RateLimitResult, get_rate_limiter
+from .auth import require_api_key
+from .identity import CallerIdentity, get_caller_identity
 from .messages import extract_reply_text, to_langchain_messages
 from .schemas import (
     MODEL_ID,
@@ -25,12 +28,17 @@ from .schemas import (
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/v1", tags=["openai-compatible"])
+router = APIRouter(
+    prefix="/v1",
+    tags=["openai-compatible"],
+    dependencies=[Depends(require_api_key)],
+)
 
 RECURSION_LIMIT: int = 15
 INTERNAL_ERROR_MESSAGE_IT: str = (
     "Si è verificato un errore nel generare la risposta. Riprova tra qualche istante."
 )
+RATE_LIMIT_MESSAGE_IT: str = "Hai raggiunto il limite di messaggi. Riprova più tardi."
 
 
 def _new_completion_id() -> str:
@@ -62,13 +70,42 @@ async def list_models() -> ModelList:
 
 
 @router.post("/chat/completions")
-async def chat_completions(request: ChatCompletionRequest):
+async def chat_completions(
+    request: ChatCompletionRequest,
+    identity: CallerIdentity = Depends(get_caller_identity),
+):
     """Answer a chat completion request.
 
     Streaming is not implemented yet: ``stream=True`` currently returns the
     same buffered payload. The SSE path is added separately.
     """
     completion_id = _new_completion_id()
+
+    limiter = await get_rate_limiter()
+    quota: RateLimitResult = await limiter.check_and_increment(identity.user_id)
+    if not quota.ok:
+        logger.info("Rate limit exceeded", extra={"user_id": identity.user_id})
+        return JSONResponse(
+            status_code=429,
+            content={
+                "error": {
+                    "message": RATE_LIMIT_MESSAGE_IT,
+                    "type": "rate_limit_exceeded",
+                    "limits": {
+                        "hour": {
+                            "limit": quota.limits["hour"].limit,
+                            "remaining": quota.limits["hour"].remaining,
+                            "reset_at": quota.limits["hour"].reset_at,
+                        },
+                        "day": {
+                            "limit": quota.limits["day"].limit,
+                            "remaining": quota.limits["day"].remaining,
+                            "reset_at": quota.limits["day"].reset_at,
+                        },
+                    },
+                }
+            },
+        )
 
     try:
         content = await _invoke_graph(request)

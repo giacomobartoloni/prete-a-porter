@@ -115,3 +115,18 @@ class RateLimiter:
             "hour": RateLimitInfo(limit=self.per_hour, remaining=hour_remaining - 1, reset_at=None),
             "day": RateLimitInfo(limit=self.per_day, remaining=day_remaining - 1, reset_at=None),
         })
+
+
+_rate_limiter: "RateLimiter | None" = None
+
+
+async def get_rate_limiter() -> "RateLimiter":
+    """Return the process-wide rate limiter, creating it on first use.
+
+    Every caller must share this singleton; a per-request limiter would reset
+    the sliding window on each call.
+    """
+    global _rate_limiter
+    if _rate_limiter is None:
+        _rate_limiter = await RateLimiter.create()
+    return _rate_limiter

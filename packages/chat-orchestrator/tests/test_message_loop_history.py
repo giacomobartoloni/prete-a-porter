@@ -17,7 +17,7 @@ from chat_orchestrator.routes import _message_loop
 @pytest.fixture(autouse=True)
 async def _isolate_rate_limiter(monkeypatch):
     monkeypatch.setenv("RATE_LIMIT_DB_PATH", ":memory:")
-    import chat_orchestrator.routes as routes_mod
+    import chat_orchestrator.rate_limiter as routes_mod
     routes_mod._rate_limiter = None
     yield
     if routes_mod._rate_limiter is not None:
