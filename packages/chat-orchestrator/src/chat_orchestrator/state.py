@@ -14,5 +14,4 @@ class ChatState(MessagesState):
 	Inherits from MessagesState (which provides a 'messages' field).
 	"""
 	session_id: str
-	user_id: str
 	next_action: Literal["continue", "end"]
