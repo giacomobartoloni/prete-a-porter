@@ -8,16 +8,18 @@ accepted but never read: the backend always uses its own configured LLM.
 import logging
 import time
 import uuid
+from collections.abc import AsyncIterator
 
 from fastapi import APIRouter, Depends
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 
 from ..config import get_llm
 from ..graph import get_graph
 from ..rate_limiter import RateLimitResult, get_rate_limiter
 from .auth import require_api_key
 from .identity import CallerIdentity, get_caller_identity
-from .messages import extract_reply_text, to_langchain_messages
+from .messages import extract_reply_text, stream_graph_tokens, to_langchain_messages
+from .sse import DONE_FRAME, build_content_chunk, build_finish_chunk
 from .tasks import classify_task
 from .schemas import (
     MODEL_ID,
@@ -73,6 +75,43 @@ async def _invoke_utility_llm(request: ChatCompletionRequest) -> str:
     return str(content)
 
 
+async def _stream_chat(
+    request: ChatCompletionRequest,
+    completion_id: str,
+) -> AsyncIterator[str]:
+    """Stream a chat completion as OpenAI-shaped SSE frames.
+
+    A failure mid-stream is logged and the stream is terminated with
+    ``[DONE]`` rather than left open, so the client never hangs.
+    """
+    try:
+        graph = await get_graph()
+        messages = to_langchain_messages(request.messages)
+        async for token in stream_graph_tokens(graph, messages):
+            yield build_content_chunk(token, chunk_id=completion_id)
+        yield build_finish_chunk(chunk_id=completion_id)
+    except Exception:
+        logger.error("Streaming completion failed", exc_info=True)
+    yield DONE_FRAME
+
+
+async def _stream_utility_task(
+    request: ChatCompletionRequest,
+    completion_id: str,
+) -> AsyncIterator[str]:
+    """Stream a utility task straight from the LLM, with no graph and no tools."""
+    try:
+        llm = get_llm()
+        async for chunk in llm.astream(to_langchain_messages(request.messages)):
+            content = chunk.content
+            if isinstance(content, str) and content:
+                yield build_content_chunk(content, chunk_id=completion_id)
+        yield build_finish_chunk(chunk_id=completion_id)
+    except Exception:
+        logger.error("Streaming utility task failed", exc_info=True)
+    yield DONE_FRAME
+
+
 @router.get("/models")
 async def list_models() -> ModelList:
     """Advertise the single available model."""
@@ -125,6 +164,23 @@ async def chat_completions(
         )
 
     task = classify_task(request)
+
+    if request.stream:
+        generator = (
+            _stream_utility_task(request, completion_id)
+            if task is not None
+            else _stream_chat(request, completion_id)
+        )
+        return StreamingResponse(
+            generator,
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no",
+            },
+        )
+
     if task is not None:
         logger.info("Handling OpenWebUI utility task", extra={"task": task})
         try:
