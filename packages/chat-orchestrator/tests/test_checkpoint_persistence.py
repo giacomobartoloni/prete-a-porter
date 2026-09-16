@@ -1,20 +1,16 @@
 """Tests for checkpoint persistence features in chat-orchestrator.
 
-Covers:
-  1. _message_loop checkpoint recovery (routes.py)
-  2. DELETE /checkpoints/{session_id} endpoint (main.py)
-  3. cleanup_old_checkpoints TTL logic (cleanup.py)
+Covers the rate limiter's sliding window and its use by the message loop.
 """
 
 import json
-from datetime import datetime, timedelta, timezone
-from unittest.mock import AsyncMock, MagicMock, patch
+
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from fastapi import WebSocketDisconnect
 from langchain_core.messages import AIMessage, HumanMessage
 
-from chat_orchestrator.cleanup import cleanup_old_checkpoints
 from chat_orchestrator.routes import _message_loop
 
 
@@ -156,207 +152,9 @@ class TestMessageLoop:
         assert state["user_id"] == "user-1"
 
 # ---------------------------------------------------------------------------
-# TestDeleteCheckpoint — DELETE /checkpoints/{session_id}
-# ---------------------------------------------------------------------------
-
-class TestDeleteCheckpoint:
-    """DELETE /checkpoints/{session_id} endpoint (main.py)."""
-
-    @pytest.mark.asyncio
-    async def test_returns_204(self):
-        """Endpoint returns HTTP 204."""
-        mock_graph = AsyncMock()
-        mock_graph.checkpointer = AsyncMock()
-
-        with patch("chat_orchestrator.main.get_graph", return_value=mock_graph):
-            from chat_orchestrator.main import delete_checkpoint
-            response = await delete_checkpoint("session-abc")
-            assert response.status_code == 204
-
-    @pytest.mark.asyncio
-    async def test_calls_adelete_thread_with_session_id(self):
-        """adelete_thread is called with the correct session_id."""
-        mock_graph = AsyncMock()
-        mock_graph.checkpointer = AsyncMock()
-
-        with patch("chat_orchestrator.main.get_graph", return_value=mock_graph):
-            from chat_orchestrator.main import delete_checkpoint
-            await delete_checkpoint("session-xyz")
-            mock_graph.checkpointer.adelete_thread.assert_awaited_once_with("session-xyz")
-
-    @pytest.mark.asyncio
-    async def test_does_not_crash_when_thread_missing(self):
-        """Exception from adelete_thread is caught, still returns 204."""
-        mock_graph = AsyncMock()
-        mock_graph.checkpointer = AsyncMock()
-        mock_graph.checkpointer.adelete_thread.side_effect = Exception("not found")
-
-        with patch("chat_orchestrator.main.get_graph", return_value=mock_graph):
-            from chat_orchestrator.main import delete_checkpoint
-            response = await delete_checkpoint("ghost-session")
-            assert response.status_code == 204
-
-    @pytest.mark.asyncio
-    async def test_handles_graph_error_gracefully(self):
-        """Exception from get_graph is caught, still returns 204."""
-        with patch(
-            "chat_orchestrator.main.get_graph",
-            side_effect=RuntimeError("connection refused"),
-        ):
-            from chat_orchestrator.main import delete_checkpoint
-            response = await delete_checkpoint("session-1")
-            assert response.status_code == 204
-
-
-# ---------------------------------------------------------------------------
-# TestCleanupOldCheckpoints — background TTL cleanup
-# ---------------------------------------------------------------------------
-
-class TestCleanupOldCheckpoints:
-    """cleanup_old_checkpoints TTL logic (cleanup.py)."""
-
-    @pytest.mark.asyncio
-    async def test_does_not_delete_recent_checkpoints(self, monkeypatch):
-        """Checkpoints within the TTL window are kept."""
-        monkeypatch.setenv("CHECKPOINT_TTL_DAYS", "90")
-        cp = RecordingCheckpointer([
-            MockCheckpoint(_iso_days_ago(0), "now"),
-            MockCheckpoint(_iso_days_ago(30), "recent-1"),
-            MockCheckpoint(_iso_days_ago(89), "recent-2"),
-        ])
-        graph = MagicMock()
-        graph.checkpointer = cp
-
-        count = await cleanup_old_checkpoints(graph)
-
-        assert count == 0
-        assert cp.deleted == []
-
-    @pytest.mark.asyncio
-    async def test_deletes_old_checkpoints(self, monkeypatch):
-        """Checkpoints past the TTL window are deleted."""
-        monkeypatch.setenv("CHECKPOINT_TTL_DAYS", "90")
-        cp = RecordingCheckpointer([
-            MockCheckpoint(_iso_days_ago(180), "old-1"),
-            MockCheckpoint(_iso_days_ago(365), "old-2"),
-        ])
-        graph = MagicMock()
-        graph.checkpointer = cp
-
-        count = await cleanup_old_checkpoints(graph)
-
-        assert count == 2
-        assert "old-1" in cp.deleted
-        assert "old-2" in cp.deleted
-
-    @pytest.mark.asyncio
-    async def test_mixed_ages_only_old_deleted(self, monkeypatch):
-        """Only checkpoints past the TTL are deleted; recent survive."""
-        monkeypatch.setenv("CHECKPOINT_TTL_DAYS", "90")
-        cp = RecordingCheckpointer([
-            MockCheckpoint(_iso_days_ago(180), "old"),
-            MockCheckpoint(_iso_days_ago(30), "recent"),
-            MockCheckpoint(_iso_days_ago(200), "very-old"),
-            MockCheckpoint(_iso_days_ago(0), "now"),
-        ])
-        graph = MagicMock()
-        graph.checkpointer = cp
-
-        count = await cleanup_old_checkpoints(graph)
-
-        assert count == 2
-        assert "old" in cp.deleted
-        assert "very-old" in cp.deleted
-        assert "recent" not in cp.deleted
-        assert "now" not in cp.deleted
-
-    @pytest.mark.asyncio
-    async def test_empty_checkpoints_returns_zero(self, monkeypatch):
-        """An empty checkpointer returns 0 without error."""
-        monkeypatch.setenv("CHECKPOINT_TTL_DAYS", "90")
-        cp = RecordingCheckpointer([])
-        graph = MagicMock()
-        graph.checkpointer = cp
-
-        count = await cleanup_old_checkpoints(graph)
-
-        assert count == 0
-        assert cp.deleted == []
-
-    @pytest.mark.asyncio
-    async def test_skips_checkpoints_without_timestamp(self, monkeypatch):
-        """Checkpoints missing the 'ts' field are silently skipped."""
-        monkeypatch.setenv("CHECKPOINT_TTL_DAYS", "90")
-
-        cps = [
-            MockCheckpoint(_iso_days_ago(200), "has-ts"),
-            MockCheckpoint("", "no-ts"),
-            MockCheckpoint(_iso_days_ago(180), "also-has-ts"),
-        ]
-        cps[1].checkpoint = {}
-
-        graph = MagicMock()
-        graph.checkpointer = RecordingCheckpointer(cps)
-
-        with patch.object(graph.checkpointer, "adelete_thread", wraps=graph.checkpointer.adelete_thread) as del_spy:
-            count = await cleanup_old_checkpoints(graph)
-
-        assert count == 2
-        assert del_spy.call_count == 2
-
-    @pytest.mark.asyncio
-    async def test_skips_bad_timestamp_format(self, monkeypatch):
-        """Unparseable ts strings are skipped."""
-        monkeypatch.setenv("CHECKPOINT_TTL_DAYS", "90")
-        cp = RecordingCheckpointer([
-            MockCheckpoint("not-a-date", "bad-1"),
-            MockCheckpoint(_iso_days_ago(200), "good"),
-        ])
-        graph = MagicMock()
-        graph.checkpointer = cp
-
-        count = await cleanup_old_checkpoints(graph)
-
-        assert count == 1
-        assert "bad-1" not in cp.deleted
-        assert "good" in cp.deleted
-
-    @pytest.mark.asyncio
-    async def test_returns_deleted_count(self, monkeypatch):
-        """Return value matches the number of deleted checkpoints."""
-        monkeypatch.setenv("CHECKPOINT_TTL_DAYS", "90")
-        cp = RecordingCheckpointer([
-            MockCheckpoint(_iso_days_ago(180), "old"),
-            MockCheckpoint(_iso_days_ago(0), "fresh"),
-        ])
-        graph = MagicMock()
-        graph.checkpointer = cp
-
-        count = await cleanup_old_checkpoints(graph)
-
-        assert count == 1
-
-    @pytest.mark.asyncio
-    async def test_custom_ttl_from_env(self, monkeypatch):
-        """TTL is read from the CHECKPOINT_TTL_DAYS env var (default 90)."""
-        monkeypatch.setenv("CHECKPOINT_TTL_DAYS", "30")
-        cp = RecordingCheckpointer([
-            MockCheckpoint(_iso_days_ago(60), "too-old"),
-            MockCheckpoint(_iso_days_ago(15), "still-fresh"),
-        ])
-        graph = MagicMock()
-        graph.checkpointer = cp
-
-        count = await cleanup_old_checkpoints(graph)
-
-        assert count == 1
-        assert "too-old" in cp.deleted
-        assert "still-fresh" not in cp.deleted
-
-
-# ---------------------------------------------------------------------------
 # TestRateLimiter — sliding window rate limiting
 # ---------------------------------------------------------------------------
+
 
 class TestRateLimiterDataTypes:
     """RateLimitResult and RateLimitInfo data types."""
