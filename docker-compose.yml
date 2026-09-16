@@ -137,6 +137,39 @@ services:
       - preteaporter-network
     restart: unless-stopped
 
+  # OpenWebUI — chat frontend for the chat-orchestrator's OpenAI-compatible API
+  openwebui:
+    image: ghcr.io/open-webui/open-webui:v0.10.2
+    container_name: openwebui
+    ports:
+      - "3000:8080"
+    environment:
+      - OPENAI_API_BASE_URL=http://chat-orchestrator:8000/v1
+      - OPENAI_API_KEY=${ORCHESTRATOR_API_KEY}
+      - ENABLE_FORWARD_USER_INFO_HEADERS=True
+      # Disable every auxiliary task that would otherwise hit the orchestrator.
+      - ENABLE_TITLE_GENERATION=False
+      - ENABLE_TAGS_GENERATION=False
+      - ENABLE_FOLLOW_UP_GENERATION=False
+      - ENABLE_AUTOCOMPLETE_GENERATION=False
+      - ENABLE_RETRIEVAL_QUERY_GENERATION=False
+      - ENABLE_SEARCH_QUERY_GENERATION=False
+      - ENABLE_IMAGE_PROMPT_GENERATION=False
+      - ENABLE_CONTEXT_COMPACTION=False
+      - DEFAULT_INTERFACE_SETTINGS={"autoFollowUps":false}
+      - DEFAULT_LOCALE=it-IT
+      - WEBUI_SECRET_KEY=${WEBUI_SECRET_KEY}
+      - CHROMA_ENABLED=False
+      - CHROMADB_ENABLED=False
+      - RAG_EMBEDDING_ENGINE=
+      - RAG_EMBEDDING_MODEL=
+    depends_on:
+      - chat-orchestrator
+    networks:
+      - preteaporter-network
+    volumes:
+      - openwebui_data:/app/backend/data
+
   # A2A Inspector - Web UI for testing agents via standard A2A protocol
   # Access at http://localhost:8080, then enter http://liturgy-agent:8001
   # Port 8080 is blocked by Hetzner firewall in production
@@ -148,6 +181,7 @@ services:
       - preteaporter-network
 
 volumes:
+  openwebui_data:
   frontend-db:
   caddy_data:
   caddy_config:

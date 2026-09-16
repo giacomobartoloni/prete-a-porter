@@ -12,11 +12,13 @@ import uuid
 from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse
 
+from ..config import get_llm
 from ..graph import get_graph
 from ..rate_limiter import RateLimitResult, get_rate_limiter
 from .auth import require_api_key
 from .identity import CallerIdentity, get_caller_identity
 from .messages import extract_reply_text, to_langchain_messages
+from .tasks import classify_task
 from .schemas import (
     MODEL_ID,
     ChatCompletionChoice,
@@ -54,6 +56,21 @@ async def _invoke_graph(request: ChatCompletionRequest) -> str:
         config={"recursion_limit": RECURSION_LIMIT},
     )
     return extract_reply_text(result)
+
+
+async def _invoke_utility_llm(request: ChatCompletionRequest) -> str:
+    """Answer a utility request with a bare LLM call.
+
+    No homily system prompt and no tools: a utility task is a generic text
+    transformation. Running it through the ReAct loop would make the LLM call
+    the liturgical tools to generate a chat title.
+    """
+    llm = get_llm()
+    response = await llm.ainvoke(to_langchain_messages(request.messages))
+    content = response.content
+    if isinstance(content, str):
+        return content
+    return str(content)
 
 
 @router.get("/models")
@@ -105,6 +122,27 @@ async def chat_completions(
                     },
                 }
             },
+        )
+
+    task = classify_task(request)
+    if task is not None:
+        logger.info("Handling OpenWebUI utility task", extra={"task": task})
+        try:
+            content = await _invoke_utility_llm(request)
+        except Exception:
+            logger.error("Utility task LLM call failed", exc_info=True)
+            return JSONResponse(
+                status_code=500,
+                content={"error": {"message": INTERNAL_ERROR_MESSAGE_IT, "type": "internal_error"}},
+            )
+        return ChatCompletionResponse(
+            id=completion_id,
+            created=int(time.time()),
+            choices=[
+                ChatCompletionChoice(
+                    message={"role": "assistant", "content": content},
+                )
+            ],
         )
 
     try:
