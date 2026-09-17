@@ -6,12 +6,13 @@ services:
   # Coordinates liturgy-agent and homily-agent via A2A protocol
   chat-orchestrator:
     image: ghcr.io/giacomobartoloni/prete-a-porter-chat-orchestrator:${IMAGE_TAG:-latest}
+    restart: unless-stopped
     pull_policy: ${PULL_POLICY:-missing}
     build:
       context: .
       dockerfile: packages/chat-orchestrator/Dockerfile
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
     env_file:
       - .env
     environment:
@@ -41,12 +42,13 @@ services:
   # Provides liturgical content generation and retrieval
   liturgy-agent:
     image: ghcr.io/giacomobartoloni/prete-a-porter-liturgy-agent:${IMAGE_TAG:-latest}
+    restart: unless-stopped
     pull_policy: ${PULL_POLICY:-missing}
     build:
       context: .
       dockerfile: packages/liturgy-agent/Dockerfile
     ports:
-      - "8001:8001"
+      - "127.0.0.1:8001:8001"
     env_file:
       - .env
     environment:
@@ -69,12 +71,13 @@ services:
   # Provides homily content generation and spiritual guidance
   homily-agent:
     image: ghcr.io/giacomobartoloni/prete-a-porter-homily-agent:${IMAGE_TAG:-latest}
+    restart: unless-stopped
     pull_policy: ${PULL_POLICY:-missing}
     build:
       context: .
       dockerfile: packages/homily-agent/Dockerfile
     ports:
-      - "8002:8002"
+      - "127.0.0.1:8002:8002"
     env_file:
       - .env
     environment:
@@ -90,17 +93,52 @@ services:
       timeout: 10s
       start_period: 10s
       retries: 10
+    volumes:
+      # RAG corpus + ONNX embedding model cache (populated by the rag-ingest service)
+      - ./data/chroma_db:/app/packages/homily-agent/data/chroma_db
+      - ./data/chroma_cache:/root/.cache
+
+  # RAG corpus ingestion — one-off, not started by `docker compose up` (profile: tools)
+  #   mkdir -p data/chroma_db data/chroma_cache
+  #   docker compose build homily-agent
+  #   docker compose run --rm rag-ingest --reset
+  # Parsers (bs4/lxml/pymupdf) live in the `ml` extra and are installed on the fly;
+  # embeddings use the same ONNX MiniLM function as the homily-agent at query time.
+  rag-ingest:
+    profiles: ["tools"]
+    image: ghcr.io/giacomobartoloni/prete-a-porter-homily-agent:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    pull_policy: ${PULL_POLICY:-missing}
+    build:
+      context: .
+      dockerfile: packages/homily-agent/Dockerfile
+    env_file:
+      - .env
+    entrypoint:
+      - sh
+      - -c
+      - >-
+        uv pip install --python .venv/bin/python beautifulsoup4 lxml pymupdf &&
+        .venv/bin/python scripts/ingest_corpus.py "$@"
+      - sh
+    volumes:
+      - ./support:/app/support:ro
+      - ./data/chroma_db:/app/packages/homily-agent/data/chroma_db
+      - ./data/chroma_cache:/root/.cache
+    networks:
+      - preteaporter-network
 
   # Frontend - Next.js Web UI on port 3000
   # Chat interface connecting to chat-orchestrator via WebSocket
   frontend:
     image: ghcr.io/giacomobartoloni/prete-a-porter-frontend:${IMAGE_TAG:-latest}
+    restart: unless-stopped
     pull_policy: ${PULL_POLICY:-missing}
     build:
       context: frontend
       dockerfile: Dockerfile
     ports:
-      - "3000:3000"
+      - "127.0.0.1:3000:3000"
     environment:
       - WS_URL=${WS_URL:-ws://chat-orchestrator:8000/ws/chat}
       - ORCHESTRATOR_URL=http://chat-orchestrator:8000
@@ -133,7 +171,12 @@ services:
       - frontend
       - chat-orchestrator
     networks:
-      - preteaporter-network
+      preteaporter-network:
+        # The app makes self-referential requests to its public URL (next-auth middleware
+        # session checks, next-intl rewrites). Resolve that name to Caddy inside the
+        # network so those calls complete instead of leaving the bridge and failing.
+        aliases:
+          - chat.prete-a-porter.dev
     restart: unless-stopped
 
   # A2A Inspector - Web UI for testing agents via standard A2A protocol
@@ -142,7 +185,7 @@ services:
   a2a-inspector:
     image: a2a-inspector
     ports:
-      - "8080:8080"
+      - "127.0.0.1:8080:8080"
     networks:
       - preteaporter-network
 
