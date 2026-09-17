@@ -140,7 +140,10 @@ services:
 
   # OpenWebUI — chat frontend for the chat-orchestrator's OpenAI-compatible API
   openwebui:
-    image: ghcr.io/open-webui/open-webui:v0.10.2
+    # v0.11.3 is the first minor release line that reads DEFAULT_INTERFACE_SETTINGS;
+    # v0.10.2 silently ignored it. Bumping past this tag requires re-checking the
+    # keys below against the release notes.
+    image: ghcr.io/open-webui/open-webui:v0.11.3
     container_name: openwebui
     ports:
       # Host port 3001 while the Next.js frontend still owns 3000. After the
@@ -161,7 +164,24 @@ services:
       - ENABLE_SEARCH_QUERY_GENERATION=False
       - ENABLE_IMAGE_PROMPT_GENERATION=False
       - ENABLE_CONTEXT_COMPACTION=False
-      - DEFAULT_INTERFACE_SETTINGS={"autoFollowUps":false}
+      # Interface defaults, aligned with the legacy Next.js frontend where the
+      # supported keys allow it: wide content column, no chat bubbles (the live
+      # legacy renderer draws assistant text as bare markdown), markdown for the
+      # assistant only (user text was rendered as plain pre-wrap text), and no
+      # background generation of titles, tags or follow-ups.
+      #
+      # COLOURS ARE NOT CONFIGURABLE. OpenWebUI exposes no supported way to
+      # override its palette: custom theming is an enterprise feature and the
+      # image carries no custom-CSS hook. The legacy warm-liturgical light
+      # palette and obsidian dark palette (globals.css) cannot be reproduced
+      # here. Do not patch the compiled assets to force them; see
+      # docs/verification-levels.md for why that class of change is avoided.
+      #
+      # fontFamily names a font that must be installed on each user's machine.
+      # Inter is not a macOS system font, so users without it silently fall back
+      # to the default face. The legacy UI also used Playfair Display for
+      # headings and JetBrains Mono for code; only one family is settable.
+      - 'DEFAULT_INTERFACE_SETTINGS={"widescreenMode":true,"chatBubble":false,"chatHoverPreview":false,"showFloatingActionButtons":false,"chatDirection":"LTR","landingPageMode":"chat","renderMarkdownInAssistantMessages":true,"renderMarkdownInUserMessages":false,"renderMarkdownInPreviews":true,"chatFadeStreamingText":false,"collapseCodeBlocks":false,"expandDetails":false,"title":{"auto":false},"autoFollowUps":false,"autoTags":false,"keepFollowUpPrompts":false,"enableMessageQueue":false,"temporaryChatByDefault":false,"showChangelog":false,"showUpdateToast":false,"showUsername":false,"copyFormatted":false,"highContrastMode":false,"scrollOnResponseGeneration":true,"showChatTitleInTab":true,"fontFamily":"Inter"}'
       - DEFAULT_LOCALE=it-IT
       - WEBUI_SECRET_KEY=${WEBUI_SECRET_KEY}
       - CHROMA_ENABLED=False
