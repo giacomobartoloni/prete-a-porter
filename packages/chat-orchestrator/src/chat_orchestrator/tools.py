@@ -40,34 +40,112 @@ def _parse_llm_json(text: str) -> dict:
 
 
 _READING_KEYS = [("first_reading", "First"), ("psalm", "Psalm"), ("second_reading", "Second"), ("gospel", "Gospel")]
+_METADATA_KEYS = ("date", "occasion", "season", "color", "year_cycle", "sunday_or_weekday")
+_YEAR_CYCLES = {"A", "B", "C"}
+_WEEKDAY_KINDS = {"Sunday", "Weekday"}
+
+
+def _normalize_reading(reading: Any, reading_type: str) -> Optional[dict]:
+    """Coerce a reading into the {reference, text, type} shape the homily agent validates.
+
+    Models routinely compact readings to bare reference strings (or drop fields) when they
+    build the JSON they pass to generate_homily, and the homily agent's LiturgicalReading
+    rejects anything that is not a Reading object.
+    """
+    if reading is None:
+        return None
+
+    if isinstance(reading, str):
+        return {"reference": reading, "text": "", "type": reading_type}
+
+    if not isinstance(reading, dict):
+        logger.warning(f"Unsupported {reading_type} payload: {type(reading).__name__}")
+        return None
+
+    normalized = dict(reading)
+    normalized.setdefault("type", reading_type)
+    normalized.setdefault("text", "")
+    reference = normalized.get("reference") or normalized.get("ref")
+    if not isinstance(reference, str):
+        logger.warning(f"{reading_type} without a usable reference: {reading}")
+        return None
+    normalized["reference"] = reference
+    return normalized
+
+
+def _normalize_metadata(metadata: Any, date: Any, occasion: Any) -> Optional[dict]:
+    """Return a LiturgicalMetadata-shaped dict, or None so the homily agent applies its default."""
+    if not isinstance(metadata, dict):
+        return None
+
+    normalized = dict(metadata)
+    normalized.setdefault("date", date)
+    normalized.setdefault("occasion", occasion)
+    if not all(normalized.get(key) for key in _METADATA_KEYS):
+        logger.warning(f"Dropping incomplete liturgical metadata: {metadata}")
+        return None
+    if normalized["year_cycle"] not in _YEAR_CYCLES or normalized["sunday_or_weekday"] not in _WEEKDAY_KINDS:
+        logger.warning(f"Dropping non-conforming liturgical metadata: {metadata}")
+        return None
+    return normalized
 
 
 def _map_liturgical_data(liturgical_data: dict) -> dict:
     """Map liturgy agent response to LiturgicalReading format expected by homily agent.
-    
-    Handles three formats:
-    - Already in LiturgicalReading format (first_reading at top level)
-    - Nested under "data" key (from A2A response wrapper)
-    - Nested under "readings" key (from liturgy agent contract)
-    Also ensures each reading object has required "type" and "text" fields.
+
+    Accepts the A2A response wrapper ({"data": {...}}), a nested {"readings": {...}} mapping, and
+    readings placed directly at the top level. In every case the result is normalized into the
+    {reference, text, type} reading objects the homily agent validates.
     """
     inner = liturgical_data if "first_reading" in liturgical_data else liturgical_data.get("data", liturgical_data)
-    if "first_reading" in inner:
-        mapped = dict(inner)
+    if not isinstance(inner, dict):
+        inner = liturgical_data
+    nested = inner.get("readings")
+    readings = nested if isinstance(nested, dict) else inner
+
+    mapped = {
+        "date": inner.get("date") or readings.get("date"),
+        "occasion": inner.get("occasion") or readings.get("occasion"),
+        "metadata": inner.get("metadata") or readings.get("metadata"),
+    }
+    for key, reading_type in _READING_KEYS:
+        reading = _normalize_reading(readings.get(key), reading_type)
+        if reading:
+            mapped[key] = reading
+
+    metadata = _normalize_metadata(mapped.get("metadata"), mapped.get("date"), mapped.get("occasion"))
+    if metadata:
+        mapped["metadata"] = metadata
     else:
-        readings = inner.get("readings", {})
-        mapped = {
-            "date": inner.get("date"),
-            "occasion": inner.get("occasion"),
-            "metadata": inner.get("metadata"),
-        }
-        for key, rtype in _READING_KEYS:
-            r = readings.get(key)
-            if r:
-                r = dict(r)
-                r.setdefault("type", rtype)
-                r.setdefault("text", "")
-                mapped[key] = r
+        mapped.pop("metadata", None)
+
+    return mapped
+
+
+async def _with_full_reading_texts(mapped: dict, occasion: str) -> dict:
+    """Recover reading texts and metadata from the liturgy agent when the model dropped them.
+
+    The homily generator grounds its prompts in the actual reading texts, but models usually
+    keep only references when they echo readings into the homily tools. Readings are cached in
+    the liturgy agent (24h TTL), so this is a cheap in-network call.
+    """
+    missing_text = [key for key, _ in _READING_KEYS if not (mapped.get(key) or {}).get("text")]
+    if not missing_text or not mapped.get("date"):
+        return mapped
+
+    try:
+        fresh = _map_liturgical_data(await request_liturgical_data(occasion, mapped["date"]))
+    except Exception as e:
+        logger.warning(f"Could not re-fetch readings to fill missing texts: {e}")
+        return mapped
+
+    for key, _ in _READING_KEYS:
+        reading = fresh.get(key)
+        if reading and reading.get("text"):
+            mapped[key] = reading
+    if not mapped.get("metadata") and fresh.get("metadata"):
+        mapped["metadata"] = fresh["metadata"]
+    logger.info(f"Recovered reading texts from the liturgy agent for: {', '.join(missing_text)}")
     return mapped
 
 
@@ -370,7 +448,7 @@ async def request_homily_generation(
     config = _get_homily_transport_config()
     logger.info(f"Requesting homily generation: occasion={occasion}")
 
-    mapped = _map_liturgical_data(liturgical_data)
+    mapped = await _with_full_reading_texts(_map_liturgical_data(liturgical_data), occasion)
     if not mapped.get("first_reading") or not mapped.get("gospel"):
         logger.error("Incomplete liturgical data for homily generation", mapped=mapped)
         return {"error": "Dati liturgici incompleti. Richiedi prima le letture del giorno.", "occasion": occasion}
@@ -415,7 +493,7 @@ async def request_homily_refinement(
         logger.error("Missing liturgical data for homily refinement")
         return {"error": "Dati liturgici incompleti. Richiedi prima le letture del giorno.", "occasion": occasion}
 
-    mapped = _map_liturgical_data(liturgical_data)
+    mapped = await _with_full_reading_texts(_map_liturgical_data(liturgical_data), occasion)
     if not mapped.get("first_reading") or not mapped.get("gospel"):
         logger.error("Incomplete liturgical data for homily refinement")
         return {"error": "Dati liturgici incompleti. Richiedi prima le letture del giorno.", "occasion": occasion}
