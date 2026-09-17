@@ -584,6 +584,12 @@ OpenAI-compatible providers (Fireworks, Groq, Together, Ollama, vLLM) all use
 
 ## 10. Testing
 
+> **Verification levels:** [`docs/verification-levels.md`](docs/verification-levels.md)
+> records how each module was actually tested — unit, container, integration with a
+> stubbed model, and end-to-end against a real model — and which level caught which
+> class of defect. [`docs/testing.rst`](docs/testing.rst) describes an intended
+> strategy and names tooling that is not installed; prefer the former.
+
 ### Test Locations
 
 | Location | Path | Files | Layer |
