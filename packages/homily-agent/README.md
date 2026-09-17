@@ -98,3 +98,16 @@ uv run python scripts/ingest_corpus.py --bible-dir /percorso/bibbia --ccc-path /
 ```
 
 Il corpus viene salvato in `data/chroma_db/` (persist directory di ChromaDB).
+
+Da Docker (senza installare torch/bs4 sull'host), tramite il servizio one-off
+`rag-ingest` di `docker-compose.yml`:
+
+```bash
+docker compose build homily-agent
+docker compose run --rm rag-ingest --reset     # aggiungi --help per le opzioni
+```
+
+I parser (bs4/lxml/pymupdf) vengono installati nel container al volo; gli
+embedding usano la stessa funzione ONNX MiniLM del retrieval a runtime.
+`support/` è montato read-only, `data/chroma_db/` è condiviso con `homily-agent`.
+

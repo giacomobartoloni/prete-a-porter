@@ -122,7 +122,19 @@ The homily agent uses Retrieval-Augmented Generation (RAG) with a ChromaDB vecto
 ./support/download.sh
 ```
 
-Run this **once** before first use (local development) or ensure the files are mounted into the homily-agent container (Docker — see `docker-compose.yml`).
+Run this **once** before first use. Then build the corpus — either locally
+(`cd packages/homily-agent && uv sync --extras ml && uv run python scripts/ingest_corpus.py`)
+or, for Docker deployments, through the one-off `rag-ingest` service:
+
+```bash
+mkdir -p data/chroma_db data/chroma_cache
+docker compose build homily-agent
+docker compose run --rm rag-ingest --reset
+```
+
+The corpus is persisted in `data/chroma_db/` and mounted into `homily-agent`
+(see `docker-compose.yml`); `data/chroma_cache/` holds the ONNX embedding model
+so both ingestion and retrieval use the same embedding function.
 
 ## Testing A2A Protocol
 
