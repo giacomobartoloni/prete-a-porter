@@ -42,17 +42,27 @@ def _parse_llm_json(text: str) -> dict:
 _READING_KEYS = [("first_reading", "First"), ("psalm", "Psalm"), ("second_reading", "Second"), ("gospel", "Gospel")]
 
 
+def _has_top_level_readings(data: dict) -> bool:
+    """True when any reading sits directly on the object.
+
+    Checking only ``first_reading`` mis-classified partial payloads — the LLM
+    may omit a reading it has no content for, which sent the whole object down
+    the nested-readings branch and silently dropped everything.
+    """
+    return any(key in data for key, _ in _READING_KEYS)
+
+
 def _map_liturgical_data(liturgical_data: dict) -> dict:
     """Map liturgy agent response to LiturgicalReading format expected by homily agent.
     
     Handles three formats:
-    - Already in LiturgicalReading format (first_reading at top level)
+    - Already in LiturgicalReading format (readings at top level)
     - Nested under "data" key (from A2A response wrapper)
     - Nested under "readings" key (from liturgy agent contract)
     Also ensures each reading object has required "type" and "text" fields.
     """
-    inner = liturgical_data if "first_reading" in liturgical_data else liturgical_data.get("data", liturgical_data)
-    if "first_reading" in inner:
+    inner = liturgical_data if _has_top_level_readings(liturgical_data) else liturgical_data.get("data", liturgical_data)
+    if _has_top_level_readings(inner):
         mapped = dict(inner)
     else:
         readings = inner.get("readings", {})
@@ -61,13 +71,27 @@ def _map_liturgical_data(liturgical_data: dict) -> dict:
             "occasion": inner.get("occasion"),
             "metadata": inner.get("metadata"),
         }
-        for key, rtype in _READING_KEYS:
+        for key, _rtype in _READING_KEYS:
             r = readings.get(key)
             if r:
-                r = dict(r)
-                r.setdefault("type", rtype)
-                r.setdefault("text", "")
-                mapped[key] = r
+                mapped[key] = dict(r)
+
+    # Normalise every reading, whichever branch produced it. The LLM echoes this
+    # object back as a JSON string when it calls generate_homily, and it
+    # paraphrases freely on the way: one model dropped "type", another compressed
+    # each reading to its bare reference. The homily agent's LiturgicalReading
+    # requires the full object, so both malformations produced an opaque
+    # "Internal error" the model could not recover from. This boundary is the
+    # only place that sees both sides, so the shape is re-established here.
+    for key, rtype in _READING_KEYS:
+        reading = mapped.get(key)
+        if isinstance(reading, str):
+            reading = {"reference": reading}
+            mapped[key] = reading
+        if isinstance(reading, dict):
+            reading.setdefault("type", rtype)
+            reading.setdefault("text", "")
+
     return mapped
 
 
@@ -180,40 +204,74 @@ def _today_iso() -> str:
 def _normalize_date(date_str: Optional[str]) -> Optional[str]:
     """
     Normalize a date string to YYYY-MM-DD format.
-    
+
     Handles:
     - Already formatted YYYY-MM-DD dates (returns as-is)
     - Relative dates: "today", "tomorrow", "yesterday"
     - Italian: "oggi", "domani", "ieri"
+    - Weekday names, English and Italian: "next sunday", "domenica"
+    - Human-readable dates, as produced by calculate_date
     - None (returns None)
-    
+
+    The weekday and readable-format branches exist because this function is the
+    last boundary before the liturgy agent, which accepts only ISO dates. The
+    model is asked to resolve relative dates with calculate_date first, but it
+    often passes the phrase straight through — and calculate_date itself returns
+    "Sunday, September 20, 2026", which is not ISO either. Normalising here is
+    the only point that covers both mistakes.
+
     Args:
         date_str: Date string to normalize
-        
+
     Returns:
         Date in YYYY-MM-DD format, or None if input is None
     """
     if date_str is None:
         return None
-    
-    date_str = date_str.strip().lower()
-    
+
+    raw = date_str.strip()
+    normalized = raw.lower()
+
     # Check if already YYYY-MM-DD format
-    if re.match(r'^\d{4}-\d{2}-\d{2}$', date_str):
-        return date_str
-    
+    if re.match(r'^\d{4}-\d{2}-\d{2}$', normalized):
+        return normalized
+
     # Handle relative dates
     now = datetime.now()
-    
-    if date_str in ["today", "oggi"]:
+
+    if normalized in ["today", "oggi"]:
         return now.strftime("%Y-%m-%d")
-    
-    if date_str in ["tomorrow", "domani"]:
+
+    if normalized in ["tomorrow", "domani"]:
         return (now + timedelta(days=1)).strftime("%Y-%m-%d")
-    
-    if date_str in ["yesterday", "ieri"]:
+
+    if normalized in ["yesterday", "ieri"]:
         return (now - timedelta(days=1)).strftime("%Y-%m-%d")
-    
+
+    # Weekday names resolve to the next occurrence of that weekday.
+    day_map = {
+        "sunday": 6, "domenica": 6,
+        "monday": 0, "lunedì": 0, "lunedi": 0,
+        "tuesday": 1, "martedì": 1, "martedi": 1,
+        "wednesday": 2, "mercoledì": 2, "mercoledi": 2,
+        "thursday": 3, "giovedì": 3, "giovedi": 3,
+        "friday": 4, "venerdì": 4, "venerdi": 4,
+        "saturday": 5, "sabato": 5,
+    }
+    for day_name, day_num in day_map.items():
+        if day_name in normalized:
+            days_ahead = (day_num - now.weekday()) % 7
+            if days_ahead == 0:
+                days_ahead = 7
+            return (now + timedelta(days=days_ahead)).strftime("%Y-%m-%d")
+
+    # Human-readable dates, including the format calculate_date returns.
+    for fmt in ("%A, %B %d, %Y", "%A %B %d, %Y", "%B %d, %Y", "%d/%m/%Y", "%d-%m-%Y"):
+        try:
+            return datetime.strptime(raw, fmt).strftime("%Y-%m-%d")
+        except ValueError:
+            continue
+
     # If we can't parse it, log warning and return as-is
     # (will cause error in agent, which will be caught and reported)
     logger.warning(f"Could not normalize date string: {date_str}")
