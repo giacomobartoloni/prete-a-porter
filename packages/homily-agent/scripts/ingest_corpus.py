@@ -16,16 +16,30 @@ logging.basicConfig(level=logging.INFO, format="%(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent.parent
-DEFAULT_BIBLE_DIR = PROJECT_ROOT / "support" / "bibbia2008" / "bcei2008"
+DEFAULT_BIBLE_ROOT = PROJECT_ROOT / "support" / "bibbia2008"
 DEFAULT_CCC_PATH = (
     PROJECT_ROOT / "support" / "catechismo" / "catechismo-della-chiesa-cattolica.pdf"
 )
 
 
+def _resolve_bible_dir(root: Path) -> Path:
+    """
+    Locate the directory holding the CEI 2008 *.htm files.
+
+    `download.sh` hoists the archive contents into support/bibbia2008/, but archives
+    extracted by hand keep the top-level `bibbia2008/` directory from the zip.
+    """
+    nested = root / "bibbia2008" / "bcei2008"
+    direct = root / "bcei2008"
+    if nested.is_dir() and not direct.is_dir():
+        return nested
+    return direct
+
+
 def main():
     parser = argparse.ArgumentParser(description="Ingest theological sources into ChromaDB corpus")
     parser.add_argument("--reset", action="store_true", help="Reset the collection before ingesting")
-    parser.add_argument("--bible-dir", type=str, default=str(DEFAULT_BIBLE_DIR))
+    parser.add_argument("--bible-dir", type=str, default=str(_resolve_bible_dir(DEFAULT_BIBLE_ROOT)))
     parser.add_argument("--ccc-path", type=str, default=str(DEFAULT_CCC_PATH))
     args = parser.parse_args()
 
