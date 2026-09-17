@@ -48,3 +48,14 @@ def build_finish_chunk(*, chunk_id: str) -> str:
         {"index": 0, "delta": {}, "finish_reason": "stop"}
     ]
     return _frame(payload)
+
+
+def build_error_chunk(message: str, *, error_type: str = "internal_error") -> str:
+    """Build a frame carrying an error instead of content.
+
+    A stream that fails after the response has started cannot change its HTTP
+    status. Emitting only ``[DONE]`` would leave the client with an empty
+    assistant message and no explanation, so the failure travels in-band as a
+    top-level ``error`` object, which OpenAI-compatible clients surface.
+    """
+    return _frame({"error": {"message": message, "type": error_type}})

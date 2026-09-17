@@ -128,8 +128,12 @@ class TestStreaming:
         second = client.post("/v1/chat/completions", json=_payload(stream=True), headers=headers)
         assert second.status_code == 429
 
-    def test_graph_error_still_terminates_the_stream(self, client, graph_mock):
-        """A mid-stream failure must not leave the client hanging."""
+    def test_graph_error_terminates_the_stream_and_reports_it(self, client, graph_mock):
+        """A mid-stream failure must not leave the client hanging or silent.
+
+        Emitting only [DONE] would render an empty assistant message with no
+        explanation, because the HTTP status is already committed.
+        """
         async def failing_astream(payload, config=None, **kwargs):
             yield (AIMessageChunk(content="Ecco"), {"langgraph_node": "agent"})
             raise RuntimeError("boom")
@@ -137,6 +141,8 @@ class TestStreaming:
         graph_mock.astream = failing_astream
         response = client.post("/v1/chat/completions", json=_payload(stream=True), headers=AUTH_HEADERS)
         assert response.text.rstrip().endswith("data: [DONE]")
+        assert '"error"' in response.text
+        assert "errore" in response.text.lower()
 
 
 @pytest.fixture

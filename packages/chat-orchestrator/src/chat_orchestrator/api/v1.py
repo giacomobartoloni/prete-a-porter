@@ -19,7 +19,7 @@ from ..rate_limiter import RateLimitResult, get_rate_limiter
 from .auth import require_api_key
 from .identity import CallerIdentity, get_caller_identity
 from .messages import extract_reply_text, stream_graph_tokens, to_langchain_messages
-from .sse import DONE_FRAME, build_content_chunk, build_finish_chunk
+from .sse import DONE_FRAME, build_content_chunk, build_error_chunk, build_finish_chunk
 from .tasks import classify_task
 from .schemas import (
     MODEL_ID,
@@ -92,6 +92,7 @@ async def _stream_chat(
         yield build_finish_chunk(chunk_id=completion_id)
     except Exception:
         logger.error("Streaming completion failed", exc_info=True)
+        yield build_error_chunk(INTERNAL_ERROR_MESSAGE_IT)
     yield DONE_FRAME
 
 
@@ -109,6 +110,7 @@ async def _stream_utility_task(
         yield build_finish_chunk(chunk_id=completion_id)
     except Exception:
         logger.error("Streaming utility task failed", exc_info=True)
+        yield build_error_chunk(INTERNAL_ERROR_MESSAGE_IT)
     yield DONE_FRAME
 
 
