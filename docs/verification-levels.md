@@ -250,7 +250,7 @@ LibreChat-side rendering of domain-specific output — that is PR 6+ work.
 | **Model looped until `GraphRecursionError`** | 4 | Needs a model eager enough to keep calling tools |
 | **`"next sunday"` reached the liturgy agent verbatim** | 4 | Needs a model that ignores the `calculate_date` instruction |
 | `homily-agent` retrieves 0 documents (ChromaDB absent) | 4 | Only visible in a real run's logs |
-| **Boundary log lines never reached the container logs** — `api/*` uses stdlib `logging`, and nothing configures a stdlib handler; `configure_logging()` is defined but never called | 4 | Unit tests read logs through `caplog`, which attaches its own handler — so the test suite could see messages the deployment drops |
+| **The new boundary log lines never reached the container logs** — stdlib `logging` records find no handler (`configure_logging()` is never called), so `INFO` is dropped and `WARNING` survives only via `logging.lastResort` | 4 | Unit tests read logs through `caplog`, which attaches its own handler — so the test suite could see messages the deployment drops |
 | **`CHAT_REQUEST_TIMEOUT_SECONDS` works as designed under a real stream** | 4 | The unit test proves the response shape; only LibreChat proves a user sees the message |
 
 The pattern is worth stating plainly: **levels 0–3 verified everything this migration
@@ -272,10 +272,12 @@ passing unit suite says nothing about whether the system works.
 - **Level 4 depends on one provider account.** A suspended billing account silently
   turns every level-4 check into a 500. Level 3 exists so the chain can still be
   verified without one.
-- **Stdlib logging is still half-wired.** The `/v1` boundary and `identity.py` now use
-  the structured logger (`utils.logging.get_logger`), which is what actually emits.
-  `main.py`, `api/auth.py`, and `routes.py` still call `logging.getLogger(...)`, whose
-  records reach no handler in the container, and `configure_logging()` — the module
-  meant to fix that — is never called. Fixing the whole scheme is its own change: it
-  must keep `caplog`-based tests working and render both structlog events and stdlib
-  records on one handler.
+- **Stdlib logging is still half-wired — tracked as a backlog activity in
+  `AgentWorklog` (`prete-a-porter/Activities/2026-09-18-stdlib-logging-backlog`).**
+  The `/v1` boundary and `identity.py` now use the structured logger
+  (`utils.logging.get_logger`), which is what actually emits. `tools.py` (12 call
+  sites) and `api/auth.py` still call `logging.getLogger(...)`, and
+  `configure_logging()` — the root-handler installer — is never called: their `INFO`
+  records are dropped, and their `WARNING` records surface only as bare lines through
+  `logging.lastResort`. Verified against the container: `grep -c "Requesting liturgical
+  data"` on the logs returns 0 although the tools ran.
