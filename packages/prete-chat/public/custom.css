@@ -1,0 +1,29 @@
+/* Prête-à-Porter brand tokens for the Chainlit UI.
+ *
+ * Chainlit styles everything with Tailwind/shadcn CSS variables expressed as
+ * HSL triplets; overriding the few brand-relevant ones is enough to carry the
+ * identity without patching the frontend. Keep this file small: the stock UI
+ * is the point of using Chainlit.
+ *
+ * The bundled stylesheet is linked *after* this file, so equal-specificity
+ * selectors would lose: `html:root` raises the specificity of these tokens.
+ */
+
+html:root {
+  /* Deep liturgical red replaces Chainlit's pink accent */
+  --primary: 340 62% 32%;
+  --primary-foreground: 40 43% 97%;
+  --ring: 340 62% 32%;
+  --sidebar-primary: 340 62% 32%;
+}
+
+html.dark {
+  --primary: 340 62% 44%;
+  --primary-foreground: 40 43% 97%;
+  --ring: 340 62% 44%;
+}
+
+/* The message composer keeps a hairline border instead of a filled card */
+#message-composer {
+  border: 1px solid hsl(var(--border));
+}

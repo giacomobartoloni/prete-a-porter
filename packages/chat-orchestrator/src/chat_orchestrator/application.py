@@ -12,9 +12,10 @@ because that is what every adapter already builds.
 
 import asyncio
 from collections.abc import AsyncIterator, Mapping
-from typing import Any
+from typing import Any, Literal
 
 from langchain_core.messages import AIMessage, AIMessageChunk, BaseMessage, HumanMessage, SystemMessage
+from pydantic import BaseModel
 
 from .api.schemas import ChatMessage
 from .config import get_chat_timeout_seconds
@@ -23,6 +24,38 @@ from .graph import get_graph
 NO_RESPONSE: str = "No response"
 RECURSION_LIMIT: int = 15
 AGENT_NODE: str = "agent"
+
+
+class ChatPreferences(BaseModel):
+    """Conversation-level preferences an adapter can pin for its shell.
+
+    Typed on purpose, and deliberately narrow: the values mirror the homily
+    agent's ``UserPreferences`` literals, and the core never parses UI strings
+    or button labels. An adapter that has no controls simply passes ``None``.
+    """
+
+    target_audience: Literal["adults", "youth", "children", "mixed"] | None = None
+    tone: Literal["formal", "conversational", "poetic", "consolatory", "celebratory"] | None = None
+    length: Literal["short", "medium", "long"] | None = None
+
+
+PREFERENCE_BLOCK_TEMPLATE = (
+    "Preferenze richieste dall'utente per questa conversazione: {pairs}. "
+    "Applica questi parametri quando chiami generate_homily o refine_homily."
+)
+
+
+def preference_block(preferences: ChatPreferences) -> str | None:
+    """Deterministic one-line preference block, or ``None`` when nothing is set.
+
+    ``exclude_none`` plus the model's field order keep the line stable, so the
+    same preferences always produce the same prompt text.
+    """
+    provided = preferences.model_dump(exclude_none=True)
+    if not provided:
+        return None
+    pairs = ", ".join(f"{key}={value}" for key, value in provided.items())
+    return PREFERENCE_BLOCK_TEMPLATE.format(pairs=pairs)
 
 
 def flatten_content(content: str | list[dict[str, Any]]) -> str:
@@ -40,11 +73,16 @@ def flatten_content(content: str | list[dict[str, Any]]) -> str:
     )
 
 
-def to_langchain_messages(messages: list[ChatMessage]) -> list[BaseMessage]:
+def to_langchain_messages(
+    messages: list[ChatMessage],
+    preferences: ChatPreferences | None = None,
+) -> list[BaseMessage]:
     """Map OpenAI roles onto LangChain messages.
 
     Unknown roles become HumanMessage, matching the treatment the WebSocket
-    loop already applies to every history entry.
+    loop already applies to every history entry. When ``preferences`` are
+    provided, a system message carrying the deterministic block is prepended;
+    it exists only for this invocation and is never persisted by any adapter.
     """
     converted: list[BaseMessage] = []
     for message in messages:
@@ -55,6 +93,10 @@ def to_langchain_messages(messages: list[ChatMessage]) -> list[BaseMessage]:
             converted.append(SystemMessage(content=text))
         else:
             converted.append(HumanMessage(content=text))
+    if preferences is not None:
+        block = preference_block(preferences)
+        if block is not None:
+            converted.insert(0, SystemMessage(content=block))
     return converted
 
 
@@ -104,7 +146,12 @@ def is_visible_token(chunk: object, metadata: dict[str, Any] | None) -> bool:
     return isinstance(content, str) and content != ""
 
 
-async def run_chat(messages: list[ChatMessage], *, session_id: str | None = None) -> str:
+async def run_chat(
+    messages: list[ChatMessage],
+    *,
+    session_id: str | None = None,
+    preferences: ChatPreferences | None = None,
+) -> str:
     """Run the ReAct graph once and return the assistant's reply text.
 
     ``session_id`` is correlation metadata for the graph (an adapter passes its
@@ -113,7 +160,7 @@ async def run_chat(messages: list[ChatMessage], *, session_id: str | None = None
     propagates to the caller, which owns the user-facing mapping.
     """
     graph = await get_graph()
-    state: dict[str, Any] = {"messages": to_langchain_messages(messages)}
+    state: dict[str, Any] = {"messages": to_langchain_messages(messages, preferences)}
     if session_id is not None:
         state["session_id"] = session_id
     async with asyncio.timeout(get_chat_timeout_seconds()):
@@ -126,6 +173,7 @@ async def stream_chat(
     *,
     session_id: str | None = None,
     config: Mapping[str, Any] | None = None,
+    preferences: ChatPreferences | None = None,
 ) -> AsyncIterator[tuple[object, dict[str, Any]]]:
     """Stream one graph run as native LangGraph ``(chunk, metadata)`` tuples.
 
@@ -136,7 +184,7 @@ async def stream_chat(
     ``CHAT_REQUEST_TIMEOUT_SECONDS``; partial tokens already yielded stay valid.
     """
     graph = await get_graph()
-    state: dict[str, Any] = {"messages": to_langchain_messages(messages)}
+    state: dict[str, Any] = {"messages": to_langchain_messages(messages, preferences)}
     if session_id is not None:
         state["session_id"] = session_id
     invocation_config = {"recursion_limit": RECURSION_LIMIT, **(config or {})}

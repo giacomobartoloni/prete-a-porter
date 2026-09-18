@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Prête-à-Porter">
+  <rect x="2" y="2" width="60" height="60" rx="16" fill="#7A1F3D"/>
+  <path d="M32 11v9M27.5 15.5h9" stroke="#F2C879" stroke-width="2.8" stroke-linecap="round"/>
+  <path d="M32 24c-3.8-2.8-8.9-3.9-13.8-3.4v24.2c4.9-.5 10 .6 13.8 3.4 3.8-2.8 8.9-3.9 13.8-3.4V20.6C40.9 20.1 35.8 21.2 32 24z"
+        fill="#FBF1E7"/>
+  <path d="M32 24v24.2" stroke="#7A1F3D" stroke-width="2" stroke-linecap="round"/>
+</svg>

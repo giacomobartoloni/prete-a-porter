@@ -60,3 +60,35 @@ hashes (cost 10) in the Chainlit user metadata:
 ```bash
 uv run python scripts/create_user.py --email don@example.com --name "Don Mario"
 ```
+
+## Branding and language
+
+| Item | Where |
+|---|---|
+| Name, description, `cot = "tool_call"`, logo, custom CSS | `.chainlit/config.toml` |
+| Logo / favicon | `public/logo.svg`, `public/favicon.svg` (the favicon is picked up automatically from `public/favicon.*`) |
+| Brand colours | `public/custom.css` (Chainlit's shadcn CSS variables only; no frontend patching) |
+| Welcome readme ("Leggimi") | `chainlit.md` at the package root — Chainlit's app root, not `public/` |
+| Empty-state suggestions | `@cl.set_starters` in `app.py` |
+| Italian strings | Chainlit's bundled `it` catalogue (`[UI] language = "it"`) |
+
+Per-key translation overrides are deferred on purpose: `load_translation()`
+returns the file found in `.chainlit/translations/` **instead of** the bundled
+catalogue, and that directory is generated at startup (ignored in git), so an
+override means committing a full catalogue copy and re-checking it on every
+Chainlit bump. Revisit only if a string actually needs changing.
+
+## Preferences and refinement actions
+
+The composer's settings panel pins three conversation preferences (Destinatari,
+Tono, Lunghezza): Italian labels in `preferences.py`, core values submitted to
+`chat_orchestrator.application.ChatPreferences`. The selection becomes one
+deterministic line in the invocation's system prompt; nothing is persisted by
+the core and an untouched panel pins nothing. Changed settings persist with the
+thread (Chainlit session metadata) and are restored on resume.
+
+Each answer carries four refinement actions (`actions.py`): the payload holds a
+typed operation, the adapter composes the Italian user turn — "Accorcia l'ultima
+omelia, ..." — and re-enters the normal run path, so the model sees plain prose
+and the history stays coherent. Actions run inside Chainlit's action request,
+not the message task, so the Stop button does not cancel them.

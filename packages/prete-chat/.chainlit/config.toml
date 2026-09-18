@@ -21,6 +21,10 @@ description = "Assistente per la preparazione delle omelie e per i dati liturgic
 language = "it"
 cot = "tool_call"
 confirm_new_chat = true
+# The logo is picked up automatically from public/logo_{light,dark}.svg (GET /logo);
+# the assistant avatar uses the same theme-aware mark.
+default_avatar_file_url = "/logo"
+custom_css = "/public/custom.css"
 
 [meta]
 # Chainlit refuses any config file whose marker is <= 0.3.0; keep this in step

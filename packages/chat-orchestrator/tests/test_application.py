@@ -16,9 +16,11 @@ from chat_orchestrator import application
 from chat_orchestrator.api.schemas import ChatMessage
 from chat_orchestrator.application import (
     RECURSION_LIMIT,
+    ChatPreferences,
     extract_reply_text,
     flatten_content,
     is_visible_token,
+    preference_block,
     run_chat,
     stream_chat,
     to_langchain_messages,
@@ -143,6 +145,62 @@ class TestIsVisibleToken:
 
     def test_missing_metadata_is_not_visible(self):
         assert is_visible_token(AIMessageChunk(content="ciao"), None) is False
+
+
+class TestPreferences:
+    def test_block_is_deterministic(self):
+        prefs = ChatPreferences(target_audience="youth", tone="poetic", length="long")
+        assert preference_block(prefs) == (
+            "Preferenze richieste dall'utente per questa conversazione: "
+            "target_audience=youth, tone=poetic, length=long. "
+            "Applica questi parametri quando chiami generate_homily o refine_homily."
+        )
+
+    def test_empty_preferences_produce_no_block(self):
+        assert preference_block(ChatPreferences()) is None
+
+    def test_partial_preferences_list_only_what_is_set(self):
+        block = preference_block(ChatPreferences(tone="conversational"))
+        assert block is not None
+        assert "tone=conversational" in block
+        assert "target_audience" not in block
+
+    def test_messages_gain_a_system_block_when_preferences_are_pinned(self):
+        messages = to_langchain_messages(
+            [ChatMessage(role="user", content="ciao")],
+            ChatPreferences(tone="formal"),
+        )
+        assert isinstance(messages[0], SystemMessage)
+        assert "tone=formal" in messages[0].content
+        assert messages[1].content == "ciao"
+
+    def test_no_extra_message_without_preferences(self):
+        assert len(to_langchain_messages([ChatMessage(role="user", content="ciao")])) == 1
+
+    def test_empty_preferences_add_nothing(self):
+        messages = to_langchain_messages(
+            [ChatMessage(role="user", content="ciao")],
+            ChatPreferences(),
+        )
+        assert len(messages) == 1
+
+    @pytest.mark.asyncio
+    async def test_stream_chat_forwards_preferences_into_the_state(self, monkeypatch):
+        capture: dict = {}
+        graph = TestStreamChat._streaming_graph(capture=capture)
+        monkeypatch.setattr(application, "get_graph", AsyncMock(return_value=graph))
+
+        _ = [
+            item
+            async for item in stream_chat(
+                [ChatMessage(role="user", content="ciao")],
+                preferences=ChatPreferences(length="short"),
+            )
+        ]
+
+        wrapped = capture["state"]["messages"][0]
+        assert isinstance(wrapped, SystemMessage)
+        assert "length=short" in wrapped.content
 
 
 class TestRunChat:

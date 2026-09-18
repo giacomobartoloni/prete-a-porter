@@ -43,8 +43,8 @@ def from_thread(thread: dict) -> list[dict[str, str]]:
             continue
         metadata = step.get("metadata") or {}
         if metadata.get(WELCOME_METADATA_KEY):
-            # The welcome message is persisted as an assistant step but is not a
-            # model turn (plan §15).
+            # Threads created while the app still sent a programmatic welcome
+            # keep it as an assistant step; it is not a model turn (plan §15).
             continue
         output = step.get("output")
         if isinstance(output, str):

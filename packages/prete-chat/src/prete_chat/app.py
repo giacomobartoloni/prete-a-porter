@@ -14,7 +14,7 @@ import chainlit as cl
 from chat_orchestrator.application import is_visible_token
 from chat_orchestrator.utils.logging import configure_logging, get_logger, set_correlation_id
 
-from prete_chat import auth, config, data_layer, errors, history, labels, runner
+from prete_chat import actions, auth, config, data_layer, errors, history, labels, preferences, runner
 
 configure_logging()
 logger = get_logger(__name__)
@@ -30,10 +30,23 @@ if config.persistence_enabled():
 else:
     logger.warning("persistence disabled: no conversation history and no authentication")
 
-WELCOME_MESSAGE = (
-    "Benvenuto. Posso cercare le letture liturgiche e preparare un'omelia: "
-    "prova con «Quali sono le letture di domenica prossima?»."
-)
+@cl.set_starters
+async def set_starters(user: cl.User | None, language: str | None) -> list[cl.Starter]:
+    """Empty-state suggestions, mirroring the legacy UI's suggestion buttons."""
+    return [
+        cl.Starter(
+            label="Letture di domenica prossima",
+            message="Quali sono le letture di domenica prossima?",
+        ),
+        cl.Starter(
+            label="Letture per un matrimonio",
+            message="Che letture ci sono per un matrimonio?",
+        ),
+        cl.Starter(
+            label="Prepara un'omelia",
+            message="Prepara un'omelia di dieci minuti per adulti.",
+        ),
+    ]
 
 
 def _user_id() -> str:
@@ -82,12 +95,27 @@ def _record_turns(turns: list[dict[str, str]], user_text: str, assistant_parts: 
 
 @cl.on_chat_start
 async def on_chat_start() -> None:
-    """Start a fresh conversation: empty model-visible history, no core call."""
+    """Start a fresh conversation: empty model-visible history, no core call.
+
+    No programmatic welcome message: a message would end the empty state that
+    the starters (the replacement for the legacy suggestion buttons) live in,
+    and the welcome text is already the readme panel (``chainlit.md``).
+    """
     cl.user_session.set("history", [])
+    cl.user_session.set("chat_settings", {})
+    await cl.ChatSettings(preferences.settings_widgets()).send()
     logger.info("chat started", user_id=_user_id(), thread_id=cl.context.session.thread_id)
-    # The metadata flag keeps this persisted assistant step out of the
-    # reconstructed history: the welcome is UI-only (plan §15).
-    await cl.Message(content=WELCOME_MESSAGE, metadata={"welcome": True}).send()
+
+
+@cl.on_settings_update
+async def on_settings_update(settings: dict) -> None:
+    """Keep the conversation preferences for the next invocations.
+
+    Only the chosen fields reach the model, and only as part of the invocation's
+    system prompt — nothing is persisted by the core (plan §18).
+    """
+    cl.user_session.set("chat_settings", dict(settings))
+    logger.info("chat settings updated", user_id=_user_id(), fields=sorted(settings))
 
 
 @cl.on_chat_resume
@@ -99,6 +127,7 @@ async def on_chat_resume(thread: dict) -> None:
     """
     turns = history.from_thread(thread)
     cl.user_session.set("history", turns)
+    cl.user_session.set("chat_settings", dict(cl.context.session.chat_settings or {}))
     logger.info(
         "chat resumed",
         user_id=_user_id(),
@@ -107,9 +136,12 @@ async def on_chat_resume(thread: dict) -> None:
     )
 
 
-@cl.on_message
-async def on_message(message: cl.Message) -> None:
-    """Answer one user turn: quota, streamed answer, steps, history, boundary log."""
+async def _answer_turn(user_text: str) -> None:
+    """Answer one user turn: quota, streamed answer, steps, history, boundary log.
+
+    Shared by typed messages and by the refinement action callback, which sends
+    its composed user message before calling this.
+    """
     user_id = _user_id()
     thread_id = cl.context.session.thread_id
     request_id = uuid.uuid4().hex[:12]
@@ -131,10 +163,11 @@ async def on_message(message: cl.Message) -> None:
         return
 
     turns: list[dict[str, str]] = cl.user_session.get("history") or []
-    messages = history.build_messages(turns, message.content)
-    answer = cl.Message(content="")
+    messages = history.build_messages(turns, user_text)
+    answer = cl.Message(content="", actions=actions.refinement_actions())
     await answer.send()
     handler = labels.ItalianLabelsHandler()
+    conversation_preferences = preferences.from_settings(cl.user_session.get("chat_settings"))
     text_parts: list[str] = []
 
     try:
@@ -142,6 +175,7 @@ async def on_message(message: cl.Message) -> None:
             messages,
             session_id=thread_id,
             config={"callbacks": [handler]},
+            preferences=conversation_preferences,
         ):
             if is_visible_token(chunk, metadata):
                 await answer.stream_token(chunk.content)
@@ -153,7 +187,7 @@ async def on_message(message: cl.Message) -> None:
         _append_notice(answer, errors.CANCELLED_MESSAGE_IT)
         outcome = "cancelled"
         await answer.update()
-        _record_turns(turns, message.content, text_parts)
+        _record_turns(turns, user_text, text_parts)
         _log_turn(
             user_id=user_id,
             thread_id=thread_id,
@@ -172,7 +206,7 @@ async def on_message(message: cl.Message) -> None:
         _append_notice(answer, errors.user_message_for(error))
 
     await answer.update()
-    _record_turns(turns, message.content, text_parts)
+    _record_turns(turns, user_text, text_parts)
     _log_turn(
         user_id=user_id,
         thread_id=thread_id,
@@ -181,6 +215,30 @@ async def on_message(message: cl.Message) -> None:
         outcome=outcome,
         streamed_chars=len("".join(text_parts)),
     )
+
+
+@cl.on_message
+async def on_message(message: cl.Message) -> None:
+    """Answer a typed user message."""
+    await _answer_turn(message.content)
+
+
+@cl.action_callback("refine_homily")
+async def on_refine_homily(action: cl.Action) -> None:
+    """Re-enter the normal run path with a composed Italian message.
+
+    The payload carries a typed operation and the visible user turn is composed
+    here, so the model sees plain prose and the history stays coherent. The
+    callback runs inside Chainlit's action request rather than the message task,
+    so the Stop button does not cancel it.
+    """
+    message_text = actions.message_for((action.payload or {}).get("operation"))
+    if message_text is None:
+        logger.warning("unknown refinement action", payload=action.payload)
+        return
+    await action.remove()
+    await cl.Message(content=message_text, type="user_message", author=_user_id()).send()
+    await _answer_turn(message_text)
 
 
 @cl.on_stop
