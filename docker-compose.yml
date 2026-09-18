@@ -23,6 +23,7 @@ services:
       - A2A_BASIC_AUTH_USERNAME=${A2A_BASIC_AUTH_USERNAME}
       - A2A_BASIC_AUTH_PASSWORD=${A2A_BASIC_AUTH_PASSWORD}
       - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:3000}
+      - CHAT_REQUEST_TIMEOUT_SECONDS=${CHAT_REQUEST_TIMEOUT_SECONDS:-180}
     depends_on:
       liturgy-agent:
         condition: service_healthy

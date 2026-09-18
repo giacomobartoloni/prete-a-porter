@@ -133,6 +133,40 @@ class TestBufferedCompletion:
         assert "errore" in body["error"]["message"].lower()
 
 
+class TestBoundaryLogging:
+    def test_completion_event_carries_the_librechat_correlation_fields(self, client):
+        from structlog.testing import capture_logs
+
+        with capture_logs() as logs:
+            client.post(
+                "/v1/chat/completions",
+                json=_payload(),
+                headers={
+                    **AUTH_HEADERS,
+                    "X-User-ID": "lc-user-7",
+                    "X-Conversation-ID": "lc-conversation-7",
+                    "X-Message-ID": "lc-message-7",
+                },
+            )
+        received = [entry for entry in logs if entry.get("event") == "Chat completion received"]
+        assert len(received) == 1
+        assert received[0]["user_id"] == "lc-user-7"
+        assert received[0]["conversation_id"] == "lc-conversation-7"
+        assert received[0]["message_id"] == "lc-message-7"
+        assert received[0]["stream"] is False
+        assert received[0]["request_id"].startswith("chatcmpl-")
+
+    def test_finished_event_reports_the_outcome(self, client):
+        from structlog.testing import capture_logs
+
+        with capture_logs() as logs:
+            client.post("/v1/chat/completions", json=_payload(), headers=AUTH_HEADERS)
+        finished = [entry for entry in logs if entry.get("event") == "Chat completion finished"]
+        assert len(finished) == 1
+        assert finished[0]["outcome"] == "completed"
+        assert isinstance(finished[0]["duration_ms"], int)
+
+
 class TestAuthentication:
     def test_rejects_missing_key(self, client):
         assert client.post("/v1/chat/completions", json=_payload()).status_code == 401

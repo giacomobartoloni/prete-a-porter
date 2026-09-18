@@ -4,7 +4,10 @@ Configuration module for Chat Orchestrator.
 Handles LLM selection and initialization.
 """
 
+import os
+
 from a2a_protocol.llm import create_llm, LLMNotConfiguredError
+
 from .exceptions import LLMNotConfiguredException
 from .utils.logging import get_logger
 
@@ -69,3 +72,34 @@ def get_llm() -> object:
         return create_llm()
     except LLMNotConfiguredError:
         raise LLMNotConfiguredException()
+
+
+CHAT_TIMEOUT_ENV_VAR: str = "CHAT_REQUEST_TIMEOUT_SECONDS"
+DEFAULT_CHAT_TIMEOUT_SECONDS: float = 180.0
+
+
+def get_chat_timeout_seconds() -> float:
+    """Read the wall-clock bound for one chat request, in seconds.
+
+    The bound covers the buffered graph invocation, the streamed graph run,
+    and the utility-task LLM call. One homily request can chain several tool
+    calls, so the default is generous; without a bound a stuck downstream
+    agent hangs the request forever.
+
+    Raises:
+        RuntimeError: when the variable is set to a non-numeric or
+            non-positive value, so a misconfigured deployment fails loudly
+            instead of silently falling back to the default.
+    """
+    raw = os.environ.get(CHAT_TIMEOUT_ENV_VAR)
+    if raw is None or not raw.strip():
+        return DEFAULT_CHAT_TIMEOUT_SECONDS
+    try:
+        seconds = float(raw)
+    except ValueError as error:
+        raise RuntimeError(
+            f"{CHAT_TIMEOUT_ENV_VAR} must be a number, got {raw!r}."
+        ) from error
+    if seconds <= 0:
+        raise RuntimeError(f"{CHAT_TIMEOUT_ENV_VAR} must be positive, got {seconds}.")
+    return seconds
