@@ -8,39 +8,52 @@ Chat orchestration service managing conversation flow and agent coordination.
 - `tests/` - Test suite
 ## OpenAI-compatible API
 
-OpenWebUI connects to this service as a model provider. Every `/v1/*` route
-requires a bearer key.
+LibreChat, OpenWebUI, and any OpenAI-compatible SDK connect to this service as a
+model provider. Every `/v1/*` route requires a bearer key.
 
 | Method | Path | Auth | Purpose |
 |---|---|---|---|
 | `GET` | `/v1/models` | Bearer | Advertises the single model `prete-a-porter` |
-| `POST` | `/v1/chat/completions` | Bearer | Chat completion (buffered) |
+| `POST` | `/v1/chat/completions` | Bearer | Chat completion, buffered (`stream=false`) or SSE (`stream=true`) |
 
 ### Required environment
 
 | Variable | Purpose |
 |---|---|
 | `ORCHESTRATOR_API_KEY` | Bearer key for `/v1/*`. Must not be named `OPENAI_API_KEY`. |
+| `CHAT_REQUEST_TIMEOUT_SECONDS` | Wall-clock bound for one request (default 180). Buffered requests return `504` on expiry; streams emit an in-band `timeout` error before `[DONE]`. |
 
 ### Identity headers
 
-Per-user quota and thread correlation come from headers OpenWebUI forwards when
-`ENABLE_FORWARD_USER_INFO_HEADERS=True` is set on its container:
+Per-user quota and thread correlation come from headers the client shell forwards.
+Both header families are accepted:
 
-| Header | Used for | Fallback when absent |
-|---|---|---|
-| `X-OpenWebUI-User-Id` | Rate-limit key | `anonymous` — all such callers share one bucket |
-| `X-OpenWebUI-Chat-Id` | Thread correlation | A fresh UUID per request — no cross-turn context |
-| `X-OpenWebUI-User-Email` | Logging only | `None` |
+| Header | Client | Used for | Fallback when absent |
+|---|---|---|---|
+| `X-OpenWebUI-User-Id` | OpenWebUI | Rate-limit key | |
+| `X-User-ID` | LibreChat | Rate-limit key | `anonymous` — all such callers share one bucket |
+| `X-OpenWebUI-Chat-Id` | OpenWebUI | Thread correlation | |
+| `X-Conversation-ID` | LibreChat | Thread correlation | A fresh UUID per request — no cross-turn context |
+| `X-OpenWebUI-User-Email` / `X-User-Email` | either | Logging only | `None` |
+| `X-Message-ID` | LibreChat | Log correlation | `None` |
 
-Both fallbacks log a warning once per process.
+The namespaced OpenWebUI names win when both families are present: they are
+unambiguous, while `X-User-ID` is a generic name. OpenWebUI sends its headers only
+with `ENABLE_FORWARD_USER_INFO_HEADERS=True`; LibreChat sends them because
+`deploy/librechat/librechat.yaml` configures them. Both fallbacks log a warning
+once per process.
 
-### Utility-task bypass
+### Utility-task bypass (OpenWebUI)
 
 OpenWebUI issues **eight** auxiliary model requests, all to the same
 `/v1/chat/completions` endpoint as real chat. These are classified and answered
 with a bare LLM call — no homily system prompt, no tools — so they never run the
 ReAct loop.
+
+LibreChat issues no auxiliary requests in this deployment: `titleConvo: false` and
+`TITLE_CONVO=false` disable title generation, and no other LibreChat task calls the
+model. If a title model is enabled later, point it at a provider, not at
+`prete-a-porter`.
 
 | Task | Env var | Default | Detected as |
 |---|---|---|---|

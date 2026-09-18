@@ -20,11 +20,15 @@ over HTTP JSON-RPC 2.0.
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
-│                     USER INTERFACE                            │
-│                   (Next.js Web Chat)                          │
-└─────────────────────────┬────────────────────────────────────┘
-                          │ WebSocket
-                          ↓
+│                     CLIENT SHELLS (replaceable)               │
+│   LibreChat (v0.8.7)  │  OpenWebUI (v0.11.3)  │  Next.js 14  │
+│   deploy/librechat/   │  docker-compose       │  transitional│
+└──────┬────────────────┬────────────────┬────────────────────┘
+       │                │                │
+       │ OpenAI-compatible HTTP          │ WebSocket (JWT)
+       │ POST /v1/chat/completions       │ /ws/chat/{session_id}
+       │ Bearer ORCHESTRATOR_API_KEY     │
+       ↓                ↓                ↓
 ┌──────────────────────────────────────────────────────────────┐
 │                  CHAT ORCHESTRATOR AGENT                      │
 │        Conversation management, workflow coordination         │
@@ -43,6 +47,11 @@ over HTTP JSON-RPC 2.0.
 └──────────────────────────┘  └──────────────────────────────┘
 ```
 
+Chat shells own generic chat-product concerns (accounts, conversation
+persistence, history, rendering). Prête-à-Porter owns the agent runtime
+(orchestration, tools, A2A, RAG). The `/v1/*` HTTP surface is the boundary
+between them; see the client-boundary spec in `AgentWorklog` for the contract.
+
 ### Quality Goals
 
 | Priority | Goal | Target | Verification |
@@ -57,7 +66,8 @@ over HTTP JSON-RPC 2.0.
 | Layer | Technology | Location | Source Files |
 |-------|-----------|----------|-------------|
 | Frontend | Next.js 14 (App Router), React 18, TypeScript, Tailwind CSS | `frontend/` | 20+ TSX files |
-| Chat Orchestrator | FastAPI, LangGraph, langgraph-checkpoint-sqlite | `packages/chat-orchestrator/` | 11 Python + 2 utils |
+| Chat Orchestrator | FastAPI, LangGraph | `packages/chat-orchestrator/` | 11 Python + 2 utils |
+| Chat Shells | LibreChat v0.8.7 (`deploy/librechat/`), OpenWebUI v0.11.3, Next.js 14 (transitional) | `deploy/`, `docker-compose.yml`, `frontend/` | — |
 | Liturgy Agent | LangGraph, BeautifulSoup, SQLite | `packages/liturgy-agent/` | 7 Python + 3 JSON lectionaries |
 | Homily Agent | LangGraph, ChromaDB, sentence-transformers | `packages/homily-agent/` | 7 Python + 4 RAG |
 | A2A Protocol | JSON-RPC 2.0, HTTP/SSE | `packages/a2a-protocol/` | 6 Python |
@@ -75,6 +85,7 @@ over HTTP JSON-RPC 2.0.
 | PostgreSQL (frontend) + SQLite (agents) | Prisma ORM + local agent caching | Schema must be relational for frontend |
 | HTTP-only transport | Microservices deployment | No stdio/gRPC transport implemented |
 | Basic Auth for A2A | Inter-agent security | Credentials shared via A2A_BASIC_AUTH env vars |
+| Client shells are replaceable | Avoid UI lock-in and duplicated product work | Shells consume only the OpenAI-compatible `/v1/*` API; no shell code imports orchestrator internals |
 
 ---
 
@@ -177,7 +188,7 @@ A2A protocol, and guides the homily preparation workflow.
 - **Runtime**: Python 3.12+, async/await
 - **Framework**: FastAPI + LangGraph
 - **LLM**: Dynamic (Anthropic / Google / OpenAI — see `create_llm()`)
-- **State Persistence**: SQLite (via `langgraph-checkpoint-sqlite`)
+- **State**: stateless per request — the caller owns conversation history; no checkpointer
 - **Pattern**: ReAct (Reasoning + Acting)
 
 ### API Endpoints
@@ -185,32 +196,51 @@ A2A protocol, and guides the homily preparation workflow.
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
 | `GET` | `/health` | none | Health check |
-| `GET` | `/v1/models` | Bearer | Advertises the model `prete-a-porter` (OpenWebUI) |
+| `GET` | `/v1/models` | Bearer | Advertises the model `prete-a-porter` (OpenAI-compatible clients) |
 | `POST` | `/v1/chat/completions` | Bearer | Chat completion, buffered or SSE |
 | `WS` | `/ws/chat/{session_id}` | JWT `ws_ticket` | Real-time chat (transitional; the Next.js frontend still uses it) |
 
 The `/v1/*` surface is **stateless**: every request carries its full message
 history, and no checkpointer exists. `ORCHESTRATOR_API_KEY` is the bearer key and
-must not be named `OPENAI_API_KEY`, which is the upstream provider key. Per-user
-identity and the rate-limit key come from `X-OpenWebUI-User-Id`, which OpenWebUI
-forwards when `ENABLE_FORWARD_USER_INFO_HEADERS=True`.
+must not be named `OPENAI_API_KEY`, which is the upstream provider key. Callers
+are LibreChat, OpenWebUI, or any OpenAI-compatible SDK.
+
+Per-user identity and the rate-limit key come from headers the client forwards:
+
+| Header | Client | Used for |
+|--------|--------|----------|
+| `X-OpenWebUI-User-Id` / `X-User-ID` | OpenWebUI / LibreChat | Rate-limit key |
+| `X-OpenWebUI-Chat-Id` / `X-Conversation-ID` | OpenWebUI / LibreChat | Thread correlation |
+| `X-OpenWebUI-User-Email` / `X-User-Email` | either | Log correlation |
+| `X-Message-ID` | LibreChat | Trace correlation |
+
+The namespaced OpenWebUI names win when both families are present; missing values
+degrade with a one-time warning (`anonymous` user, fresh thread id).
+`CHAT_REQUEST_TIMEOUT_SECONDS` bounds every `/v1` request: buffered requests
+return `504` on expiry, streams emit an in-band `timeout` error before `[DONE]`.
 
 The `/ws/*` path and the Next.js frontend remain until the OpenWebUI cutover is
-verified end to end; see `AgentWorklog` migration plan P6.
+verified end to end; see `AgentWorklog` migration plan P6. The WebSocket message
+loop is **not** bounded by `CHAT_REQUEST_TIMEOUT_SECONDS`.
 
 ### Architecture
 
 ```
-User Message (WebSocket)
-    ↓
-FastAPI WebSocket handler (routes.py)
-    ↓
+Client shells (LibreChat / OpenWebUI / Next.js)
+    │
+    ├── POST /v1/chat/completions  (api/v1.py → api/messages.py)
+    │        ↓
+    └── WS /ws/chat/{session_id}   (routes.py)
+             ↓
 LangGraph (agent_node → tools_node → should_continue)
     ↓
 A2A Client → liturgy-agent (HTTP) or homily-agent (HTTP)
     ↓
-Response → WebSocket → User
+Response → OpenAI-shaped payload/SSE or WebSocket frame
 ```
+
+Transport-independent by construction: both transports invoke the same compiled
+graph, which holds no server-side conversation state.
 
 ### Tools
 
@@ -225,8 +255,10 @@ Response → WebSocket → User
 
 ### Known Issues
 
-- No timeout on `graph.ainvoke()` in the message loop — a stuck agent invocation
-  hangs the WebSocket permanently. Tracked in the full code review report.
+- The WebSocket message loop has no timeout on `graph.ainvoke()` — a stuck agent
+  invocation hangs the socket permanently. The `/v1/*` path is bounded by
+  `CHAT_REQUEST_TIMEOUT_SECONDS` (2026-09-18); the legacy loop is not, and retires
+  with the frontend.
 
 ---
 
@@ -550,6 +582,7 @@ OpenAI-compatible providers (Fireworks, Groq, Together, Ollama, vLLM) all use
 | `A2A_HOMILY_URL` | `http://localhost:8002` | Homily agent HTTP URL |
 | `RATE_LIMIT_MESSAGES_PER_HOUR` | `5` | Per-identity hourly message quota |
 | `RATE_LIMIT_MESSAGES_PER_DAY` | `20` | Per-identity daily message quota |
+| `CHAT_REQUEST_TIMEOUT_SECONDS` | `180` | Wall-clock bound for one `/v1` request (buffered, streamed, utility) |
 
 ### OpenWebUI
 
@@ -559,6 +592,29 @@ OpenAI-compatible providers (Fireworks, Groq, Together, Ollama, vLLM) all use
 | `OPENAI_API_BASE_URL` | `http://chat-orchestrator:8000/v1` | Where OpenWebUI sends chat requests |
 | `OPENAI_API_KEY` | `${ORCHESTRATOR_API_KEY}` | OpenWebUI's name for the bearer token it sends |
 | `ENABLE_FORWARD_USER_INFO_HEADERS` | `True` | Sends `X-OpenWebUI-User-Id`, the per-user rate-limit key |
+
+### LibreChat
+
+Started only with the overlay:
+`docker compose -f docker-compose.yml -f deploy/librechat/docker-compose.librechat.yml up -d`.
+Both UIs run side by side; OpenWebUI is unaffected. Deployment details and the
+pinned version live in [`deploy/librechat/README.md`](deploy/librechat/README.md).
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `LIBRECHAT_IMAGE_TAG` | `v0.8.7` | Pinned LibreChat release (latest stable as of 2026-09-18) |
+| `PRETE_API_BASE_URL` | `http://chat-orchestrator:8000/v1` | API root LibreChat targets |
+| `LIBRECHAT_JWT_SECRET` | — | Session tokens (`openssl rand -hex 32`) |
+| `LIBRECHAT_JWT_REFRESH_SECRET` | — | Refresh tokens (`openssl rand -hex 32`) |
+| `LIBRECHAT_CREDS_KEY` | — | Credential encryption key (`openssl rand -hex 32`) |
+| `LIBRECHAT_CREDS_IV` | — | Credential encryption IV (`openssl rand -hex 16`) |
+| `LIBRECHAT_DOMAIN_CLIENT` / `LIBRECHAT_DOMAIN_SERVER` | `http://localhost:3002` | Public URL LibreChat advertises |
+| `LIBRECHAT_ALLOW_REGISTRATION` | `true` | Open registration; disable once pilot accounts exist |
+
+`deploy/librechat/librechat.yaml` forwards `X-User-ID`, `X-Conversation-ID`,
+`X-Message-ID` and `X-User-Email`, and disables LibreChat Memory, RAG, web
+search, Agents/MCP, and title generation so the shell does not duplicate or
+invoke the agent runtime.
 
 ### Liturgy Agent
 
@@ -677,7 +733,7 @@ reference.
 | LLM provider API outage | All agents stop responding | Graceful degradation: cached readings still served, homily generation fails |
 | ChromaDB corruption | RAG returns empty results | `reset_collection()` method available; periodic re-indexing |
 | WebSocket connection leak | Orphaned connections consume resources | Heartbeat mechanism not yet implemented (see code review report) |
-| Graph execution timeout | Request hangs indefinitely | No timeout on `graph.ainvoke()` — tracked in code review report |
+| Graph execution timeout | Request hangs indefinitely | `/v1` requests are bounded by `CHAT_REQUEST_TIMEOUT_SECONDS` (504 or in-band timeout error); the transitional WebSocket loop remains unbounded |
 
 ### Non-Architectural Issues
 
@@ -709,6 +765,7 @@ trade-offs.
 | ADR-005 | 2026-05-19 | ChromaDB as vector store (no Pinecone) | Zero cloud dependency; local-only deployment; Pinecone code never written | Not horizontally scalable; no managed backup |
 | ADR-006 | 2026-05-19 | sentence-transformers for embeddings | Local execution, no API costs, deterministic | Limited to smaller models; no access to OpenAI-quality embeddings |
 | ADR-007 | 2026-05-26 | Lazy init RAG in homily agent | ChromaDB + sentence-transformers are heavy (200ms+ startup) | First request is slower; error surfaces at runtime not at import |
+| ADR-008 | 2026-09-18 | Multiple chat shells over one OpenAI-compatible boundary (LibreChat + OpenWebUI + transitional WebSocket) | Shells own generic chat-product concerns; Prête keeps the agent runtime; each shell is independently replaceable | Two UIs to operate; the boundary contract must stay client-neutral; shell-specific auxiliary requests (titles, tags) must be disabled client-side |
 
 ---
 
@@ -734,3 +791,4 @@ the complete list with detailed reproduction steps and fix recommendations.
 |------|--------|
 | 2026-05-19 | Created — consolidated from SPECIFICATION.md, SPECIFICATION_PLAN.md, and package docs |
 | 2026-05-26 | Rewritten for accuracy: corrected config defaults, resolved issue statuses, removed Pinecone/stdio references, added arc42-style sections (constraints, ADRs, quality goals), linked code review report |
+| 2026-09-18 | Client boundary: LibreChat added as a second shell (`deploy/librechat/`) alongside OpenWebUI; `/v1` identity headers and timeout documented; ADR-008 added; stale checkpointer references removed |

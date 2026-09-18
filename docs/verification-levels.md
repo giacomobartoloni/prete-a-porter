@@ -1,7 +1,7 @@
 # Verification levels
 
-How each module was actually tested for the OpenWebUI migration, and what each level
-can and cannot prove.
+How each module was actually tested for the client-shell migrations (OpenWebUI and
+LibreChat), and what each level can and cannot prove.
 
 > **Not to be confused with [`testing.rst`](testing.rst).** That document describes an
 > intended strategy and is substantially aspirational: it names Cypress, Jest,
@@ -17,7 +17,7 @@ undetectable — the table at the end shows which.
 | Level | Question it answers | Mechanism | Speed |
 |---|---|---|---|
 | **0. Library contract** | Does the third-party API behave as assumed? | one-off scripts against the installed packages | seconds |
-| **1. Unit** | Does this function do what its name says? | `pytest`, no containers, no network | ~0.5 s for 181 tests |
+| **1. Unit** | Does this function do what its name says? | `pytest`, no containers, no network | ~0.9 s for 203 tests |
 | **2. Container** | Does it run where it will actually run? | `docker compose`, `docker exec`, `curl` against the built image | minutes |
 | **3. Integration, stubbed model** | Does the chain hold without a model? | a local OpenAI-compatible stub | ~10 s |
 | **4. End-to-end, real model** | Does the product work? | `curl` against the running stack | ~30 s per turn |
@@ -62,7 +62,7 @@ cd packages/chat-orchestrator && uv run pytest tests/ -v
 cd contracts && uv run pytest tests/ -v --no-docker
 ```
 
-181 tests in `packages/chat-orchestrator/tests/`, plus the contract suite.
+203 tests in `packages/chat-orchestrator/tests/`, plus the contract suite.
 
 | Test file | Tests | Module under test | Level |
 |---|---:|---|---|
@@ -70,9 +70,10 @@ cd contracts && uv run pytest tests/ -v --no-docker
 | `test_api_messages.py` | 23 | `api/messages.py` (conversion + token filter) | 1 |
 | `test_api_sse_frames.py` | 12 | `api/sse.py` | 1 |
 | `test_api_auth.py` | 9 | `api/auth.py` | 1 |
-| `test_api_identity.py` | 10 | `api/identity.py` | 1 |
+| `test_api_identity.py` | 15 | `api/identity.py` (both header families) | 1 |
 | `test_api_tasks.py` | 16 | `api/tasks.py` (classification) | 1 |
-| `test_api_v1.py` | 18 | `api/v1.py` (models, buffered, auth, quota) | 1 |
+| `test_api_v1.py` | 20 | `api/v1.py` (models, buffered, auth, quota, boundary logs) | 1 |
+| `test_api_timeout.py` | 9 | `config.py` + `api/v1.py` (timeout bound) | 1 |
 | `test_api_utility_tasks.py` | 7 | `api/v1.py` (utility routing) | 1 |
 | `test_api_streaming.py` | 12 | `api/v1.py` (SSE behaviour) | 1 |
 | `test_api_mounting.py` | 5 | `main.py` (real app wiring) | 1.5 — real `app`, mocked graph |
@@ -119,6 +120,28 @@ Checks performed:
 
 **Proves:** the image runs, the wiring is real, the environment arrived intact.
 **Cannot prove:** that the application logic produces correct output.
+
+#### LibreChat container checks (2026-09-18)
+
+```bash
+docker compose -f docker-compose.yml -f deploy/librechat/docker-compose.librechat.yml \
+  config > /dev/null                                            # parses, no warnings
+docker logs librechat | tail -20                                # no zod config error
+docker exec librechat node -e "fetch('http://chat-orchestrator:8000/v1/models',{headers:{Authorization:'Bearer '+process.env.ORCHESTRATOR_API_KEY}}).then(r=>r.text()).then(console.log)"
+```
+
+Observed:
+
+- LibreChat boots and applies the `interface` config to role permissions (prompts,
+  memories, bookmarks, multi-convo, agents, temporary chat, web search, file search,
+  file citations, marketplace all set to `false`). An invalid `librechat.yaml` would
+  have aborted startup instead.
+- The container-to-container probe returns the `prete-a-porter` model card — proving
+  the bearer key, the internal hostname, and the base URL together.
+- `RAG API is either not running or not reachable` is logged as a warning; it is
+  expected, since the LibreChat RAG stack is deliberately not deployed.
+- The concurrent-download stall: two image pulls of the same tag deadlock each other.
+  Pull once, then `up`.
 
 ### Level 3 — Integration with a stubbed model
 
@@ -187,6 +210,32 @@ docker compose logs homily-agent | grep -E "^homily-agent-1  \| 2026-09-17 08:2[
 **Cannot prove:** robustness across models. Three defects (below) appeared only here,
 and two of them appeared with one model but not another.
 
+#### LibreChat end-to-end (2026-09-18)
+
+Driven through the real UI in a browser, against the running stack and a real model.
+The evidence is the orchestrator's own boundary log, which carries the identity the
+LibreChat server forwarded.
+
+| Check | Result |
+|---|---|
+| `GET /v1/models` from the LibreChat container | `200`, model card |
+| Registration, login, first turn through the UI | readings for Sunday 20 September 2026, retrieved via `calculate_date` → `get_liturgical_readings` |
+| Streaming turn | `200`, `stream=true`, one request, `outcome=completed` |
+| LibreChat → orchestrator identity | `user_id=6aad1f27cde2ae57330e29d7`, `conversation_id=04769b45-…`, `message_id=db022209-…` all present in the log |
+| Conversation id stable across turns | three turns, same `conversation_id`, distinct `message_id`s |
+| Homily generation through the UI | four sections rendered; 67.7 s |
+| Refinement turn | `duration_ms=7224`, `outcome=completed`, same conversation |
+| Second user | different `user_id`, different `conversation_id`, empty conversation list — no access to the first user's chat |
+| Auxiliary requests | `POST /v1/chat/completions` count equals the turn count: **no title request** |
+| Orchestrator restart | conversation reopened by URL with full history intact |
+| Timeout with `CHAT_REQUEST_TIMEOUT_SECONDS=5` | `outcome=timeout` at `duration_ms=5017`; LibreChat rendered *"La richiesta ha superato il tempo massimo di elaborazione"* and the stream closed cleanly |
+| Recovery after restoring 180 s | next turn `outcome=completed`, same conversation |
+
+**Proves:** a stock, pinned LibreChat is a working client of the boundary, with
+per-user isolation, stable thread correlation, and user-visible error handling.
+**Cannot prove:** long-run behaviour (token budgets, many concurrent users), and the
+LibreChat-side rendering of domain-specific output — that is PR 6+ work.
+
 ## What each level caught
 
 | Defect | Found at | Why the lower levels missed it |
@@ -201,6 +250,8 @@ and two of them appeared with one model but not another.
 | **Model looped until `GraphRecursionError`** | 4 | Needs a model eager enough to keep calling tools |
 | **`"next sunday"` reached the liturgy agent verbatim** | 4 | Needs a model that ignores the `calculate_date` instruction |
 | `homily-agent` retrieves 0 documents (ChromaDB absent) | 4 | Only visible in a real run's logs |
+| **Boundary log lines never reached the container logs** — `api/*` uses stdlib `logging`, and nothing configures a stdlib handler; `configure_logging()` is defined but never called | 4 | Unit tests read logs through `caplog`, which attaches its own handler — so the test suite could see messages the deployment drops |
+| **`CHAT_REQUEST_TIMEOUT_SECONDS` works as designed under a real stream** | 4 | The unit test proves the response shape; only LibreChat proves a user sees the message |
 
 The pattern is worth stating plainly: **levels 0–3 verified everything this migration
 built, and level 4 immediately found three defects in code it had not touched.** A
@@ -221,3 +272,10 @@ passing unit suite says nothing about whether the system works.
 - **Level 4 depends on one provider account.** A suspended billing account silently
   turns every level-4 check into a 500. Level 3 exists so the chain can still be
   verified without one.
+- **Stdlib logging is still half-wired.** The `/v1` boundary and `identity.py` now use
+  the structured logger (`utils.logging.get_logger`), which is what actually emits.
+  `main.py`, `api/auth.py`, and `routes.py` still call `logging.getLogger(...)`, whose
+  records reach no handler in the container, and `configure_logging()` — the module
+  meant to fix that — is never called. Fixing the whole scheme is its own change: it
+  must keep `caplog`-based tests working and render both structlog events and stdlib
+  records on one handler.
