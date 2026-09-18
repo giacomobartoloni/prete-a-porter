@@ -1,0 +1,28 @@
+# Prête-à-Porter — Chainlit configuration.
+#
+# Only deviations from the Chainlit 2.12.0 defaults are written here; every
+# other key keeps its stock value. `cot = "tool_call"` is load-bearing: the UI
+# shows tool steps, never raw model reasoning or chain internals.
+
+[features]
+# The homily workflow never needs HTML or LaTeX rendering; both are XSS/bleed
+# risks with model output.
+unsafe_allow_html = false
+latex = false
+user_message_markdown = true
+
+# The legacy UI had no file upload and the core accepts text only.
+[features.spontaneous_file_upload]
+    enabled = false
+
+[UI]
+name = "Prête-à-Porter"
+description = "Assistente per la preparazione delle omelie e per i dati liturgici."
+language = "it"
+cot = "tool_call"
+confirm_new_chat = true
+
+[meta]
+# Chainlit refuses any config file whose marker is <= 0.3.0; keep this in step
+# with the pinned chainlit version in pyproject.toml.
+generated_by = "2.12.0"
