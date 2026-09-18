@@ -1,16 +1,24 @@
-"""Convert OpenAI-shaped messages to LangChain messages and back.
+"""Transport-independent chat execution shared by every adapter.
 
-Both the buffered and the streaming completion paths use these helpers, so the
-two cannot drift. The reply-extraction rules mirror the WebSocket loop exactly:
-take the last AIMessage, join text blocks, coerce anything else with str().
+Two adapters run the same ReAct graph: the OpenAI-compatible HTTP surface
+(``api/v1.py``) and the native Chainlit UI (``packages/prete-chat``). Message
+conversion, reply extraction, the visible-token filter, the recursion limit and
+the per-request timeout live here so the two cannot drift.
+
+No FastAPI and no Chainlit imports: this module knows only LangGraph, LangChain
+and sibling core modules. ``ChatMessage`` stays the OpenAI-shaped Pydantic model
+because that is what every adapter already builds.
 """
 
-from collections.abc import AsyncIterator
+import asyncio
+from collections.abc import AsyncIterator, Mapping
 from typing import Any
 
 from langchain_core.messages import AIMessage, AIMessageChunk, BaseMessage, HumanMessage, SystemMessage
 
-from .schemas import ChatMessage
+from .api.schemas import ChatMessage
+from .config import get_chat_timeout_seconds
+from .graph import get_graph
 
 NO_RESPONSE: str = "No response"
 RECURSION_LIMIT: int = 15
@@ -96,15 +104,42 @@ def is_visible_token(chunk: object, metadata: dict[str, Any] | None) -> bool:
     return isinstance(content, str) and content != ""
 
 
-async def stream_graph_tokens(
-    graph: object,
-    messages: list[BaseMessage],
-) -> AsyncIterator[str]:
-    """Yield the assistant's visible tokens as the graph produces them."""
-    async for chunk, metadata in graph.astream(
-        {"messages": messages},
-        config={"recursion_limit": RECURSION_LIMIT},
-        stream_mode="messages",
-    ):
-        if is_visible_token(chunk, metadata):
-            yield chunk.content
+async def run_chat(messages: list[ChatMessage], *, session_id: str | None = None) -> str:
+    """Run the ReAct graph once and return the assistant's reply text.
+
+    ``session_id`` is correlation metadata for the graph (an adapter passes its
+    thread id); it creates no server-side conversation state. The whole
+    invocation is bounded by ``CHAT_REQUEST_TIMEOUT_SECONDS``; a ``TimeoutError``
+    propagates to the caller, which owns the user-facing mapping.
+    """
+    graph = await get_graph()
+    state: dict[str, Any] = {"messages": to_langchain_messages(messages)}
+    if session_id is not None:
+        state["session_id"] = session_id
+    async with asyncio.timeout(get_chat_timeout_seconds()):
+        result = await graph.ainvoke(state, config={"recursion_limit": RECURSION_LIMIT})
+    return extract_reply_text(result)
+
+
+async def stream_chat(
+    messages: list[ChatMessage],
+    *,
+    session_id: str | None = None,
+    config: Mapping[str, Any] | None = None,
+) -> AsyncIterator[tuple[object, dict[str, Any]]]:
+    """Stream one graph run as native LangGraph ``(chunk, metadata)`` tuples.
+
+    ``config`` is merged into the invocation config, which is how an adapter
+    attaches its own callbacks (for example Chainlit's step-producing handler).
+    Each adapter filters the tuples itself: ``is_visible_token`` selects answer
+    text, callbacks select execution steps. The run is bounded by
+    ``CHAT_REQUEST_TIMEOUT_SECONDS``; partial tokens already yielded stay valid.
+    """
+    graph = await get_graph()
+    state: dict[str, Any] = {"messages": to_langchain_messages(messages)}
+    if session_id is not None:
+        state["session_id"] = session_id
+    invocation_config = {"recursion_limit": RECURSION_LIMIT, **(config or {})}
+    async with asyncio.timeout(get_chat_timeout_seconds()):
+        async for chunk, metadata in graph.astream(state, config=invocation_config, stream_mode="messages"):
+            yield chunk, metadata

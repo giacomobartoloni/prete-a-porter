@@ -3,26 +3,16 @@
 The assertions are behavioural: a stateless graph accepts an invocation
 without a thread_id and does not accumulate history across calls.
 
-Two fixtures are load-bearing and were verified by running them against the
-pre-change code:
-
-1. ``DATABASE_PATH`` must point at a writable temp directory. Before this
-   change, ``create_graph`` resolves ``DATABASE_PATH`` and creates its parent
-   directory; the default ``/app/data`` does not exist outside Docker, and
-   ``Path('/app/data').mkdir`` raises ``OSError: Read-only file system`` on
-   macOS, which would fail the test for the wrong reason.
-2. ``get_llm`` is replaced with a local fake, NOT with ``TEST_MODE=true``.
-   The ``TEST_MODE`` branch of ``a2a_protocol.llm.create_llm`` returns an
-   ``AsyncMock``, and ``AsyncMock().bind_tools(...)`` returns a coroutine
-   rather than the mock itself — so ``graph.py``'s
-   ``llm_with_tools = llm.bind_tools(...)`` followed by
-   ``await llm_with_tools.ainvoke(...)`` raises
-   ``AttributeError: 'coroutine' object has no attribute 'ainvoke'``.
-   The fake below keeps ``bind_tools`` synchronous and returns ``self``.
+The ``get_llm`` fixture is load-bearing and was verified by running it against
+the pre-change code: ``get_llm`` is replaced with a local fake, NOT with
+``TEST_MODE=true``. The ``TEST_MODE`` branch of ``a2a_protocol.llm.create_llm``
+returns an ``AsyncMock``, and ``AsyncMock().bind_tools(...)`` returns a
+coroutine rather than the mock itself — so ``graph.py``'s
+``llm_with_tools = llm.bind_tools(...)`` followed by
+``await llm_with_tools.ainvoke(...)`` raises
+``AttributeError: 'coroutine' object has no attribute 'ainvoke'``.
+The fake below keeps ``bind_tools`` synchronous and returns ``self``.
 """
-
-import tempfile
-from pathlib import Path
 
 import pytest
 from langchain_core.messages import AIMessage, HumanMessage
@@ -42,14 +32,6 @@ class _FakeLLM:
 
 
 @pytest.fixture(autouse=True)
-def _writable_database_path(monkeypatch):
-    """Point DATABASE_PATH at a temp dir; /app/data exists only inside Docker."""
-    tmp = tempfile.mkdtemp()
-    monkeypatch.setenv("DATABASE_PATH", str(Path(tmp) / "test_graph.db"))
-    yield
-
-
-@pytest.fixture(autouse=True)
 def _fake_llm(monkeypatch):
     monkeypatch.setattr(graph_mod, "get_llm", lambda: _FakeLLM())
     reset_graph()
@@ -66,17 +48,7 @@ class TestGraphIsStateless:
 
     @pytest.mark.asyncio
     async def test_invocation_needs_no_thread_id(self):
-        """A checkpointer would raise without thread_id; a stateless graph must not.
-
-        Before this change the test fails with exactly:
-
-            ValueError: Checkpointer requires one or more of the following
-            'configurable' keys: thread_id, checkpoint_ns, checkpoint_id
-
-        That error is the proof the graph was stateful. If this test instead
-        fails with the OSError about a read-only filesystem, the DATABASE_PATH
-        fixture is missing — do not weaken the assertion, fix the fixture.
-        """
+        """A checkpointer would raise without thread_id; a stateless graph must not."""
         compiled = await create_graph()
         result = await compiled.ainvoke(
             {"messages": [HumanMessage(content="ciao")]},

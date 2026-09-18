@@ -14,13 +14,12 @@ from collections.abc import AsyncIterator
 from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse, StreamingResponse
 
+from ..application import is_visible_token, run_chat, stream_chat, to_langchain_messages
 from ..config import get_chat_timeout_seconds, get_llm
-from ..graph import get_graph
 from ..rate_limiter import RateLimitResult, get_rate_limiter
 from ..utils.logging import get_logger
 from .auth import require_api_key
 from .identity import CallerIdentity, get_caller_identity
-from .messages import extract_reply_text, stream_graph_tokens, to_langchain_messages
 from .schemas import (
     MODEL_ID,
     ChatCompletionChoice,
@@ -40,7 +39,6 @@ router = APIRouter(
     dependencies=[Depends(require_api_key)],
 )
 
-RECURSION_LIMIT: int = 15
 INTERNAL_ERROR_MESSAGE_IT: str = (
     "Si è verificato un errore nel generare la risposta. Riprova tra qualche istante."
 )
@@ -89,14 +87,8 @@ def _log_finished(
 
 
 async def _invoke_graph(request: ChatCompletionRequest) -> str:
-    """Run the ReAct graph and return the assistant's reply text."""
-    graph = await get_graph()
-    async with asyncio.timeout(get_chat_timeout_seconds()):
-        result = await graph.ainvoke(
-            {"messages": to_langchain_messages(request.messages)},
-            config={"recursion_limit": RECURSION_LIMIT},
-        )
-    return extract_reply_text(result)
+    """Run the ReAct graph through the shared application seam."""
+    return await run_chat(request.messages)
 
 
 async def _invoke_utility_llm(request: ChatCompletionRequest) -> str:
@@ -128,11 +120,9 @@ async def _stream_chat(
     ends the same way, with an in-band error the client can surface.
     """
     try:
-        graph = await get_graph()
-        messages = to_langchain_messages(request.messages)
-        async with asyncio.timeout(get_chat_timeout_seconds()):
-            async for token in stream_graph_tokens(graph, messages):
-                yield build_content_chunk(token, chunk_id=completion_id)
+        async for chunk, metadata in stream_chat(request.messages):
+            if is_visible_token(chunk, metadata):
+                yield build_content_chunk(chunk.content, chunk_id=completion_id)
         yield build_finish_chunk(chunk_id=completion_id)
         outcome = "completed"
     except TimeoutError:

@@ -6,6 +6,23 @@ Chat orchestration service managing conversation flow and agent coordination.
 
 - `src/` - Source code
 - `tests/` - Test suite
+
+## Application seam
+
+`chat_orchestrator.application` is the transport-independent chat execution shared by
+every adapter. It owns message conversion (`to_langchain_messages`, `flatten_content`),
+reply extraction (`extract_reply_text`), the visible-token filter (`is_visible_token`),
+the recursion limit and the per-request timeout.
+
+| Adapter | Entry point |
+|---|---|
+| `api/v1.py` (OpenAI-compatible HTTP) | `run_chat` (buffered), `stream_chat` (SSE) |
+| `packages/prete-chat` (Chainlit native UI) | `stream_chat` with a Chainlit callback handler passed in `config` |
+
+`stream_chat` yields LangGraph's native `(chunk, metadata)` tuples; each adapter filters
+them itself. Nothing in the core imports Chainlit, and the module imports no web
+framework.
+
 ## OpenAI-compatible API
 
 LibreChat, OpenWebUI, and any OpenAI-compatible SDK connect to this service as a

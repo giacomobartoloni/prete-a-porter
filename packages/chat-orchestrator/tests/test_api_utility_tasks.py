@@ -7,6 +7,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from langchain_core.messages import AIMessage
 
+from chat_orchestrator import application
 from chat_orchestrator.api import v1
 from chat_orchestrator.api.schemas import MODEL_ID
 
@@ -45,7 +46,7 @@ def llm_mock():
 
 @pytest.fixture
 def client(graph_mock, llm_mock, monkeypatch):
-    monkeypatch.setattr(v1, "get_graph", AsyncMock(return_value=graph_mock))
+    monkeypatch.setattr(application, "get_graph", AsyncMock(return_value=graph_mock))
     monkeypatch.setattr(v1, "get_llm", lambda: llm_mock)
     app = FastAPI()
     app.include_router(v1.router)

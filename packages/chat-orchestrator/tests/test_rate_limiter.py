@@ -232,8 +232,6 @@ class TestMessageLoopRateLimit:
         ws.send_json = AsyncMock()
 
         graph = MagicMock()
-        graph.checkpointer = AsyncMock()
-        graph.checkpointer.aget_tuple.return_value = None
         graph.ainvoke = AsyncMock(return_value={
             "messages": [AIMessage(content="ok")],
         })

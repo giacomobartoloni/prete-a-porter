@@ -8,6 +8,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from langchain_core.messages import AIMessage, AIMessageChunk
 
+from chat_orchestrator import application
 from chat_orchestrator.api import v1
 from chat_orchestrator.api.schemas import MODEL_ID
 
@@ -45,7 +46,7 @@ def graph_mock():
 
 @pytest.fixture
 def client(graph_mock, monkeypatch):
-    monkeypatch.setattr(v1, "get_graph", AsyncMock(return_value=graph_mock))
+    monkeypatch.setattr(application, "get_graph", AsyncMock(return_value=graph_mock))
     app = FastAPI()
     app.include_router(v1.router)
     return TestClient(app)

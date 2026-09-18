@@ -9,6 +9,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from langchain_core.messages import AIMessage
 
+from chat_orchestrator import application
 from chat_orchestrator.api import v1
 from chat_orchestrator.api.schemas import MODEL_ID
 from chat_orchestrator.config import (
@@ -58,7 +59,7 @@ def hanging_graph():
 @pytest.fixture
 def client(hanging_graph, monkeypatch):
     monkeypatch.setenv(CHAT_TIMEOUT_ENV_VAR, TEST_TIMEOUT_SECONDS)
-    monkeypatch.setattr(v1, "get_graph", AsyncMock(return_value=hanging_graph))
+    monkeypatch.setattr(application, "get_graph", AsyncMock(return_value=hanging_graph))
     app = FastAPI()
     app.include_router(v1.router)
     return TestClient(app)
