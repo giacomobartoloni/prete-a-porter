@@ -19,6 +19,7 @@ def client():
             "user_id": identity.user_id,
             "thread_id": identity.thread_id,
             "user_email": identity.user_email,
+            "message_id": identity.message_id,
         }
 
     return TestClient(app)
@@ -41,6 +42,47 @@ class TestForwardedHeaders:
     def test_header_names_are_case_insensitive(self, client):
         body = client.get("/whoami", headers={"x-openwebui-user-id": "user-7"}).json()
         assert body["user_id"] == "user-7"
+
+
+class TestLibreChatHeaders:
+    def test_reads_librechat_identity(self, client):
+        body = client.get(
+            "/whoami",
+            headers={
+                "X-User-ID": "lc-user-1",
+                "X-Conversation-ID": "lc-conversation-1",
+                "X-User-Email": "parroco@example.com",
+                "X-Message-ID": "lc-message-1",
+            },
+        ).json()
+        assert body["user_id"] == "lc-user-1"
+        assert body["thread_id"] == "lc-conversation-1"
+        assert body["user_email"] == "parroco@example.com"
+        assert body["message_id"] == "lc-message-1"
+
+    def test_openwebui_headers_win_when_both_families_are_present(self, client):
+        body = client.get(
+            "/whoami",
+            headers={
+                "X-OpenWebUI-User-Id": "owui-user",
+                "X-OpenWebUI-Chat-Id": "owui-chat",
+                "X-User-ID": "lc-user",
+                "X-Conversation-ID": "lc-conversation",
+            },
+        ).json()
+        assert body["user_id"] == "owui-user"
+        assert body["thread_id"] == "owui-chat"
+
+    def test_blank_librechat_user_id_falls_back_to_anonymous(self, client):
+        body = client.get("/whoami", headers={"X-User-ID": "   "}).json()
+        assert body["user_id"] == "anonymous"
+
+    def test_blank_conversation_id_generates_a_uuid(self, client):
+        body = client.get("/whoami", headers={"X-Conversation-ID": "\t"}).json()
+        uuid.UUID(body["thread_id"])
+
+    def test_message_id_is_none_when_absent(self, client):
+        assert client.get("/whoami").json()["message_id"] is None
 
 
 class TestFallbacks:
@@ -71,20 +113,22 @@ class TestFallbacks:
 
 
 class TestDegradationIsWarned:
-    def test_missing_user_id_logs_a_warning(self, client, caplog):
-        import logging
+    def test_missing_user_id_logs_a_warning(self, client):
         import chat_orchestrator.api.identity as identity_mod
-        identity_mod._warned_missing_user_id = False
-        with caplog.at_level(logging.WARNING):
-            client.get("/whoami")
-        assert any("X-OpenWebUI-User-Id" in record.message for record in caplog.records)
+        from structlog.testing import capture_logs
 
-    def test_warning_is_emitted_only_once(self, client, caplog):
-        import logging
-        import chat_orchestrator.api.identity as identity_mod
         identity_mod._warned_missing_user_id = False
-        with caplog.at_level(logging.WARNING):
+        with capture_logs() as logs:
             client.get("/whoami")
-            caplog.clear()
+        assert any("X-OpenWebUI-User-Id" in entry.get("event", "") for entry in logs)
+
+    def test_warning_is_emitted_only_once(self, client):
+        import chat_orchestrator.api.identity as identity_mod
+        from structlog.testing import capture_logs
+
+        identity_mod._warned_missing_user_id = False
+        with capture_logs() as logs:
             client.get("/whoami")
-        assert not any("X-OpenWebUI-User-Id" in record.message for record in caplog.records)
+            logs.clear()
+            client.get("/whoami")
+        assert not logs
