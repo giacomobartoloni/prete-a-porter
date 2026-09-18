@@ -1,14 +1,14 @@
-# Welcome to Chainlit! 🚀🤖
+# Prête-à-Porter
 
-Hi there, Developer! 👋 We're excited to have you on board. Chainlit is a powerful tool designed to help you prototype, debug and share applications built on top of LLMs.
+Assistente per la preparazione delle omelie e per i dati liturgici.
 
-## Useful Links 🔗
+Prova con:
 
-- **Documentation:** Get started with our comprehensive [Chainlit Documentation](https://docs.chainlit.io) 📚
-- **Discord Community:** Join our friendly [Chainlit Discord](https://discord.gg/k73SQ3FyUh) to ask questions, share your projects, and connect with other developers! 💬
+- «Quali sono le letture di domenica prossima?»
+- «Che letture ci sono per un matrimonio?»
+- «Prepara un'omelia di dieci minuti per adulti.»
 
-We can't wait to see what you create with Chainlit! Happy coding! 💻😊
-
-## Welcome screen
-
-To modify the welcome screen, edit the `chainlit.md` file at the root of your project. If you do not want a welcome screen, just leave this file empty.
+Le risposte sono prodotte dal sistema di agenti Prête-à-Porter (Liturgy Agent e
+Homily Agent). I passaggi degli agenti compaiono come passaggi richiudibili:
+toccane uno per vedere quando è avvenuta la ricerca delle letture o la
+preparazione dell'omelia.

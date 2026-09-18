@@ -14,10 +14,21 @@ import chainlit as cl
 from chat_orchestrator.application import is_visible_token
 from chat_orchestrator.utils.logging import configure_logging, get_logger, set_correlation_id
 
-from prete_chat import errors, history, labels, runner
+from prete_chat import auth, config, data_layer, errors, history, labels, runner
 
 configure_logging()
 logger = get_logger(__name__)
+
+config.validate()
+
+# Persistence and authentication are opt-in: a postgresql+asyncpg DATABASE_URL
+# turns both on; anything else (including the legacy frontend's `file:` URL)
+# keeps the service in POC mode — no data layer, no login.
+if config.persistence_enabled():
+    cl.data_layer(data_layer.build)
+    cl.password_auth_callback(auth.password_auth)
+else:
+    logger.warning("persistence disabled: no conversation history and no authentication")
 
 WELCOME_MESSAGE = (
     "Benvenuto. Posso cercare le letture liturgiche e preparare un'omelia: "
@@ -74,7 +85,26 @@ async def on_chat_start() -> None:
     """Start a fresh conversation: empty model-visible history, no core call."""
     cl.user_session.set("history", [])
     logger.info("chat started", user_id=_user_id(), thread_id=cl.context.session.thread_id)
-    await cl.Message(content=WELCOME_MESSAGE).send()
+    # The metadata flag keeps this persisted assistant step out of the
+    # reconstructed history: the welcome is UI-only (plan §15).
+    await cl.Message(content=WELCOME_MESSAGE, metadata={"welcome": True}).send()
+
+
+@cl.on_chat_resume
+async def on_chat_resume(thread: dict) -> None:
+    """Continue an existing thread: rebuild the model-visible history.
+
+    Chainlit replays the persisted messages and elements by itself; only the
+    context for the next model invocation is rebuilt here.
+    """
+    turns = history.from_thread(thread)
+    cl.user_session.set("history", turns)
+    logger.info(
+        "chat resumed",
+        user_id=_user_id(),
+        thread_id=cl.context.session.thread_id,
+        turns=len(turns),
+    )
 
 
 @cl.on_message

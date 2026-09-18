@@ -28,9 +28,13 @@ services:
     environment:
       # The repository .env carries the legacy frontend's Prisma URL (sqlite,
       # `file:`). Chainlit auto-enables its SQLAlchemy data layer whenever
-      # DATABASE_URL is set, so this service overrides it; the persistence
-      # phase replaces the empty value with the postgresql+asyncpg URL.
-      - DATABASE_URL=
+      # DATABASE_URL is set, so this service overrides it with the PostgreSQL
+      # URL of its own database (see deploy/chainlit/README.md).
+      - DATABASE_URL=postgresql+asyncpg://chainlit:${PRETE_CHAT_DB_PASSWORD}@prete-chat-db:5432/chainlit
+      # Signs the session cookie; logins fail without it (config.validate).
+      - CHAINLIT_AUTH_SECRET=${CHAINLIT_AUTH_SECRET}
+      # Public URL for cookie/redirect correctness behind the proxy.
+      - CHAINLIT_URL=${CHAINLIT_URL:-http://localhost:3003}
       # The in-process core calls the agents directly, like the orchestrator does.
       - A2A_LITURGY_URL=http://liturgy-agent:8001
       - A2A_HOMILY_URL=http://homily-agent:8002
@@ -45,6 +49,8 @@ services:
     volumes:
       - prete-chat-data:/app/data
     depends_on:
+      prete-chat-db:
+        condition: service_healthy
       liturgy-agent:
         condition: service_healthy
       homily-agent:
@@ -58,5 +64,31 @@ services:
       start_period: 15s
       retries: 3
 
+  # PostgreSQL for Chainlit's data layer: users, threads, steps, elements,
+  # feedbacks. First boot applies deploy/chainlit/init.sql; upgrades follow the
+  # procedure in deploy/chainlit/README.md. No published port: reachable only
+  # from the internal bridge network. Pinned minor, like LibreChat's image.
+  prete-chat-db:
+    image: postgres:17.6-alpine
+    container_name: prete-chat-db
+    restart: unless-stopped
+    pull_policy: ${PULL_POLICY:-missing}
+    environment:
+      - POSTGRES_USER=chainlit
+      - POSTGRES_PASSWORD=${PRETE_CHAT_DB_PASSWORD}
+      - POSTGRES_DB=chainlit
+    volumes:
+      - prete-chat-db-data:/var/lib/postgresql/data
+      - ./deploy/chainlit/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    networks:
+      - preteaporter-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U chainlit -d chainlit"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
 volumes:
   prete-chat-data:
+  prete-chat-db-data:
