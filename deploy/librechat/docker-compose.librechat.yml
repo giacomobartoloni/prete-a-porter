@@ -1,0 +1,79 @@
+# LibreChat — an additional OpenAI-compatible client for the chat-orchestrator.
+#
+# Additive overlay: OpenWebUI (chat.prete-a-porter.dev) and the legacy Next.js
+# frontend both keep running. Start it with:
+#
+#   docker compose -f docker-compose.yml -f deploy/librechat/docker-compose.librechat.yml up -d
+#
+# LibreChat is pinned to v0.8.7. Do not point it at `latest`; bumping the tag is
+# a reviewed change — re-validate deploy/librechat/librechat.yaml first.
+#
+# Secrets come from the repository `.env`; see .env.example for the names and
+# deploy/librechat/README.md for generation commands.
+
+services:
+  librechat:
+    image: librechat/librechat:${LIBRECHAT_IMAGE_TAG:-v0.8.7}
+    container_name: librechat
+    restart: unless-stopped
+    pull_policy: ${PULL_POLICY:-missing}
+    ports:
+      # Host port 3002: 3000 is the legacy frontend, 3001 is OpenWebUI. Bound to
+      # loopback — the container is reached through Caddy or the internal
+      # network, never directly from the internet.
+      - "127.0.0.1:3002:3080"
+    environment:
+      - HOST=0.0.0.0
+      - PORT=3080
+      - MONGO_URI=mongodb://librechat-mongodb:27017/LibreChat
+      - CONFIG_PATH=/app/librechat.yaml
+      - DOMAIN_CLIENT=${LIBRECHAT_DOMAIN_CLIENT:-http://localhost:3002}
+      - DOMAIN_SERVER=${LIBRECHAT_DOMAIN_SERVER:-http://localhost:3002}
+      # Only the custom Prête endpoint is served; the built-in providers are off.
+      - ENDPOINTS=custom
+      - ALLOW_REGISTRATION=${LIBRECHAT_ALLOW_REGISTRATION:-true}
+      - ALLOW_EMAIL_LOGIN=true
+      - ALLOW_SOCIAL_LOGIN=false
+      - ALLOW_PASSWORD_RESET=false
+      # Conversation search needs Meilisearch, which is not deployed.
+      - SEARCH=false
+      # Belt and braces: librechat.yaml also sets titleConvo: false per endpoint.
+      - TITLE_CONVO=false
+      - JWT_SECRET=${LIBRECHAT_JWT_SECRET}
+      - JWT_REFRESH_SECRET=${LIBRECHAT_JWT_REFRESH_SECRET}
+      - CREDS_KEY=${LIBRECHAT_CREDS_KEY}
+      - CREDS_IV=${LIBRECHAT_CREDS_IV}
+      # The orchestrator credential and API root. librechat.yaml references both
+      # names from the container environment.
+      - ORCHESTRATOR_API_KEY=${ORCHESTRATOR_API_KEY}
+      - PRETE_API_BASE_URL=${PRETE_API_BASE_URL:-http://chat-orchestrator:8000/v1}
+    volumes:
+      - ./deploy/librechat/librechat.yaml:/app/librechat.yaml:ro
+      - librechat_uploads:/app/uploads
+      - librechat_images:/app/client/public/images
+      - librechat_logs:/app/logs
+    depends_on:
+      librechat-mongodb:
+        condition: service_started
+      chat-orchestrator:
+        condition: service_healthy
+    networks:
+      - preteaporter-network
+
+  librechat-mongodb:
+    image: mongo:${LIBRECHAT_MONGO_TAG:-8.0.20}
+    container_name: librechat-mongodb
+    restart: unless-stopped
+    pull_policy: ${PULL_POLICY:-missing}
+    command: ["mongod", "--noauth"]
+    # No published port: reachable only from the internal bridge network.
+    volumes:
+      - librechat_mongo_data:/data/db
+    networks:
+      - preteaporter-network
+
+volumes:
+  librechat_mongo_data:
+  librechat_uploads:
+  librechat_images:
+  librechat_logs:

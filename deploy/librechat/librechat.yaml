@@ -1,0 +1,65 @@
+# LibreChat configuration for Prête-à-Porter.
+#
+# Pinned to LibreChat v0.8.7 (see the image tag in
+# docker-compose.librechat.yml); the `version` field below matches that
+# release's config schema. Bumping either requires re-validating this file
+# against the new release — LibreChat refuses to start on an invalid config.
+#
+# Mounted read-only at /app/librechat.yaml (CONFIG_PATH).
+#
+# `${...}` placeholders are read from the container environment, which the
+# Compose overlay populates from the repository `.env`. `{{...}}` placeholders
+# are LibreChat's own request-time variables and must stay verbatim here.
+
+version: 1.3.13
+
+cache: true
+
+interface:
+  customWelcome: "Come posso aiutarti a preparare l'omelia?"
+  # Generic chat-product surface, kept to what this deployment needs. The
+  # disabled switches either duplicate a Prête responsibility (theological
+  # retrieval, homily domain parameters) or need infrastructure that is not
+  # deployed (Meilisearch, the LibreChat RAG stack). Rationale per key in
+  # deploy/librechat/README.md.
+  modelSelect: false
+  parameters: false
+  presets: false
+  memories: false
+  temporaryChat: false
+  webSearch: false
+  fileSearch: false
+  fileCitations: false
+  agents: false
+  prompts: false
+  bookmarks: false
+  multiConvo: false
+  marketplace:
+    use: false
+
+endpoints:
+  custom:
+    - name: "Prête-à-Porter"
+      apiKey: "${ORCHESTRATOR_API_KEY}"
+      baseURL: "${PRETE_API_BASE_URL}"
+      models:
+        default:
+          - "prete-a-porter"
+        # Calls GET {baseURL}/models with the bearer key to confirm the
+        # connection and pick up the advertised model list.
+        fetch: true
+      modelDisplayLabel: "Prête-à-Porter"
+      # A generated conversation title would invoke the full homily ReAct loop
+      # through the same endpoint. Titles stay ungenerated until a separate
+      # cheap title model is configured; see the README.
+      titleConvo: false
+      # Forwarded to the orchestrator on every request. The orchestrator keeps
+      # the OpenWebUI-prefixed names as the primary identity source and these
+      # as the LibreChat family; see packages/chat-orchestrator/README.md.
+      # Body placeholders resolve to an empty string when the field is absent.
+      headers:
+        X-User-ID: "{{LIBRECHAT_USER_ID}}"
+        X-User-Email: "{{LIBRECHAT_USER_EMAIL}}"
+        X-Conversation-ID: "{{LIBRECHAT_BODY_CONVERSATIONID}}"
+        X-Parent-Message-ID: "{{LIBRECHAT_BODY_PARENTMESSAGEID}}"
+        X-Message-ID: "{{LIBRECHAT_BODY_MESSAGEID}}"
