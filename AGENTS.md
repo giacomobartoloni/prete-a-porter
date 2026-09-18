@@ -52,6 +52,12 @@ persistence, history, rendering). Prête-à-Porter owns the agent runtime
 (orchestration, tools, A2A, RAG). The `/v1/*` HTTP surface is the boundary
 between them; see the client-boundary spec in `AgentWorklog` for the contract.
 
+**Native UI path (2026-09-18).** `packages/prete-chat` (Chainlit 2.12.0) runs
+beside the shells and **imports `chat_orchestrator.application` in-process** — it
+never speaks the OpenAI API. It calls the agents over the same A2A protocol and
+keeps its own users and conversation history in its own PostgreSQL database
+(`deploy/chainlit/`, ADR-009).
+
 ### Quality Goals
 
 | Priority | Goal | Target | Verification |
@@ -68,10 +74,11 @@ between them; see the client-boundary spec in `AgentWorklog` for the contract.
 | Frontend | Next.js 14 (App Router), React 18, TypeScript, Tailwind CSS | `frontend/` | 20+ TSX files |
 | Chat Orchestrator | FastAPI, LangGraph | `packages/chat-orchestrator/` | 11 Python + 2 utils |
 | Chat Shells | LibreChat v0.8.7 (`deploy/librechat/`), OpenWebUI v0.11.3, Next.js 14 (transitional) | `deploy/`, `docker-compose.yml`, `frontend/` | — |
+| Native UI | Chainlit 2.12.0 + SQLAlchemy/PostgreSQL data layer | `packages/prete-chat/` | 12 Python |
 | Liturgy Agent | LangGraph, BeautifulSoup, SQLite | `packages/liturgy-agent/` | 7 Python + 3 JSON lectionaries |
 | Homily Agent | LangGraph, ChromaDB, sentence-transformers | `packages/homily-agent/` | 7 Python + 4 RAG |
 | A2A Protocol | JSON-RPC 2.0, HTTP/SSE | `packages/a2a-protocol/` | 6 Python |
-| **Total** | | | **31 Python + 3 JSON** |
+| **Total** | | | **56 Python + 3 JSON** (source files, tests excluded) |
 
 ---
 
@@ -650,12 +657,13 @@ invoke the agent runtime.
 
 | Location | Path | Files | Layer |
 |----------|------|:-----:|-------|
-| A2A Protocol | `packages/a2a-protocol/tests/` | 3 | Unit |
-| Chat Orchestrator | `packages/chat-orchestrator/tests/` | 2 | Unit |
-| Liturgy Agent | `packages/liturgy-agent/tests/` | 3 | Unit |
-| Homily Agent | `packages/homily-agent/tests/` | 3 | Unit |
+| A2A Protocol | `packages/a2a-protocol/tests/` | 4 | Unit |
+| Chat Orchestrator | `packages/chat-orchestrator/tests/` | 19 | Unit |
+| Liturgy Agent | `packages/liturgy-agent/tests/` | 4 | Unit |
+| Homily Agent | `packages/homily-agent/tests/` | 1 | Unit |
+| prete-chat (native UI) | `packages/prete-chat/tests/` | 8 | Unit |
 | Contracts | `contracts/tests/` | 7 | Static + Live + E2E |
-| **Total** | | **18 test files** | |
+| **Total** | | **43 test files** | |
 
 ### Running Tests
 
@@ -665,6 +673,7 @@ cd packages/a2a-protocol && uv run pytest -v
 cd packages/liturgy-agent && uv run python -m pytest -v
 cd packages/homily-agent && uv run python -m pytest -v
 cd packages/chat-orchestrator && uv run pytest -v
+cd packages/prete-chat && uv run pytest -v
 
 # --- Contract tests (static definition, no agents needed) ---
 cd contracts && uv run pytest tests/test_liturgy_contract.py::TestContractCompliance \
@@ -725,6 +734,7 @@ reference.
 | 12 | Important | `_chunk_text` never terminates if `overlap >= chunk_size` | `homily-agent/rag/retrieval.py:258` | Active |
 | 13 | Important | `LiturgicalReading(**data)` raises unhandled Pydantic `ValidationError` on bad scraped data | `liturgy-agent/agent.py:487` | Active |
 | 14 | Minor | `datetime.utcnow()` deprecated in Python 3.12 | `liturgy-agent/cache.py:94` | Active |
+| 15 | Important | Homily generation/refinement fails when the model retypes the readings payload with `occasion: "sunday"`: `LiturgicalReading.occasion` only accepts `mass|marriage|baptism|funeral`, and the tool error is handed back to the LLM as text (observed twice in the Chainlit walkthrough, codes `5865a0d1`/`ee41a6a9`/`ca35fde1`) | `homily-agent/main.py:112` | Active |
 
 ### Technical Risks
 
@@ -766,6 +776,7 @@ trade-offs.
 | ADR-006 | 2026-05-19 | sentence-transformers for embeddings | Local execution, no API costs, deterministic | Limited to smaller models; no access to OpenAI-quality embeddings |
 | ADR-007 | 2026-05-26 | Lazy init RAG in homily agent | ChromaDB + sentence-transformers are heavy (200ms+ startup) | First request is slower; error surfaces at runtime not at import |
 | ADR-008 | 2026-09-18 | Multiple chat shells over one OpenAI-compatible boundary (LibreChat + OpenWebUI + transitional WebSocket) | Shells own generic chat-product concerns; Prête keeps the agent runtime; each shell is independently replaceable | Two UIs to operate; the boundary contract must stay client-neutral; shell-specific auxiliary requests (titles, tags) must be disabled client-side |
+| ADR-009 | 2026-09-18 | Native UI: Chainlit 2.12.0 as a separate service (`packages/prete-chat`) importing the `chat_orchestrator.application` seam in-process, with its own PostgreSQL for users and conversation history | Keeps the OpenAI API as the interoperability boundary; the core never imports Chainlit and stays stateless; the native UI sees LangGraph tool events directly; a UI failure cannot take down `/v1`; dependency drift stays in the app's own lock | One more service and database to operate; the seam (`application.py`) is now the shared execution path and must stay behaviour-neutral for `/v1` |
 
 ---
 
@@ -785,6 +796,47 @@ the complete list with detailed reproduction steps and fix recommendations.
 
 ---
 
+## 14. Native UI — prete-chat (Chainlit)
+
+**Location**: `packages/prete-chat/` · **Port**: `127.0.0.1:3003` (container 8000)
+· **Overlay**: `deploy/chainlit/docker-compose.chainlit.yml`
+
+A separate service that imports `chat_orchestrator.application` **in-process**. It
+never calls `/v1/*` and needs no `ORCHESTRATOR_API_KEY`; the core never imports
+Chainlit. Failures are isolated: a UI crash cannot take down the API.
+
+| Module | Purpose |
+|---|---|
+| `app.py` | Chainlit entry point: lifecycle hooks (start/resume/message/settings/stop/logout), starters, quota, one boundary log line per turn |
+| `runner.py` | The only core import surface (`application.stream_chat`, rate limiter) — the test seam |
+| `history.py` | Model-visible history: in-session accumulation and `ThreadDict` reconstruction (user/assistant text only) |
+| `auth.py` | Password auth: bcrypt hash (cost 10) in the Chainlit user metadata |
+| `data_layer.py` | `SerializedSQLAlchemyDataLayer`: the bundled layer with statements serialized |
+| `preferences.py` / `actions.py` | Italian controls mapped to `ChatPreferences`; refinement actions composed into user turns |
+| `errors.py` / `labels.py` | Italian status text; tool-step titles |
+| `scripts/create_user.py` | Operator provisioning (no stock signup) |
+
+**Persistence**: its own PostgreSQL (`prete-chat-db`, `postgres:17.6-alpine`;
+schema `deploy/chainlit/init.sql`) holding users, threads, steps, elements and
+feedbacks. Conversation history is canonical there; the core stores nothing.
+Deploy, upgrade and backup procedures live in `deploy/chainlit/README.md`.
+
+**Configuration**: `DATABASE_URL` (`postgresql+asyncpg://…` enables persistence
+**and** login; anything else keeps POC mode), `CHAINLIT_AUTH_SECRET`,
+`CHAINLIT_URL`, `PRETE_CHAT_DB_PASSWORD`, `RATE_LIMIT_DB_PATH` (its own SQLite),
+plus the shared LLM/A2A/timeout/quota variables. Chainlit is pinned exactly.
+
+**Rollback**: stop the overlay (`docker compose … down prete-chat prete-chat-db`);
+the base stack is untouched. Unsetting `DATABASE_URL` runs the service without
+persistence and without login.
+
+**Rules**: do not route OpenAI clients through Chainlit, and never import
+Chainlit from the core — `application.py` is the shared execution path. Open
+owner decisions (plan §29): provisioning for existing users, hostname/cutover
+versus OpenWebUI, retention, and acceptance of the preference controls.
+
+---
+
 ## Document History
 
 | Date | Change |
@@ -792,3 +844,4 @@ the complete list with detailed reproduction steps and fix recommendations.
 | 2026-05-19 | Created — consolidated from SPECIFICATION.md, SPECIFICATION_PLAN.md, and package docs |
 | 2026-05-26 | Rewritten for accuracy: corrected config defaults, resolved issue statuses, removed Pinecone/stdio references, added arc42-style sections (constraints, ADRs, quality goals), linked code review report |
 | 2026-09-18 | Client boundary: LibreChat added as a second shell (`deploy/librechat/`) alongside OpenWebUI; `/v1` identity headers and timeout documented; ADR-008 added; stale checkpointer references removed |
+| 2026-09-18 | Native UI: Chainlit service (`packages/prete-chat`) with its own PostgreSQL, password auth, Italian UX, preferences and refinement actions; `application` seam extracted in chat-orchestrator; ADR-009; known issue #15 added; `prete-chat` added to both CI matrices |

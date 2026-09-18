@@ -20,6 +20,7 @@ jobs:
           - { service: chat-orchestrator, context: .,        file: packages/chat-orchestrator/Dockerfile }
           - { service: liturgy-agent,     context: .,        file: packages/liturgy-agent/Dockerfile }
           - { service: homily-agent,      context: .,        file: packages/homily-agent/Dockerfile }
+          - { service: prete-chat,        context: .,        file: packages/prete-chat/Dockerfile }
           - { service: frontend,          context: frontend, file: frontend/Dockerfile }
     steps:
       - name: Checkout repository

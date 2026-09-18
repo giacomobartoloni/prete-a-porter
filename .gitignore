@@ -64,3 +64,6 @@ docs/code-review-report.html
 # Copyrighted content (download separately via support/download.sh)
 support/bibbia2008/
 support/catechismo/
+
+# Chainlit generates .chainlit/translations/ from its bundled catalogues at startup
+packages/prete-chat/.chainlit/translations/
