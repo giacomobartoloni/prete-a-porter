@@ -1,3 +1,5 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&family=Playfair+Display:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap');
+
 /* Prête-à-Porter brand tokens for the Chainlit UI.
  *
  * Chainlit styles everything with Tailwind/shadcn CSS variables expressed as
@@ -9,20 +11,88 @@
  * selectors would lose: `html:root` / `html.dark` raise the specificity.
  */
 
+/* ── Typography ─────────────────────────────────────────────────────────────
+ * Ported from the legacy frontend (frontend/src/app/globals.css):
+ *   Inter              every UI surface and body copy
+ *   Playfair Display   headings (h1–h4 there, message headings here)
+ *   JetBrains Mono     code and preformatted text
+ * Chainlit declares `--font-sans: "Inter", sans-serif` but ships no webfont,
+ * so the family only resolves where the OS happens to have it: the @import
+ * above makes the match real, exactly as the legacy app loaded it. */
+
 html:root {
-  /* Deep liturgical red replaces Chainlit's pink accent */
-  --primary: 340 62% 32%;
-  --primary-foreground: 40 43% 97%;
-  --ring: 340 62% 32%;
-  --sidebar-primary: 340 62% 32%;
+  --font-sans: 'Inter', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 }
 
-/* Dark theme: the brand mark is a near-black 3D glyph (faces between roughly
- * 4% and 18% lightness) designed for a light ground. On Chainlit's stock
- * surfaces (background 13%, card 18%) its lower half has no contrast at all,
- * so the dark palette is lifted into graphite: every surface sits above the
- * glyph, the white facet keeps its pop, and layering (card > background >
- * sidebar) is preserved. No plate or border is drawn around the logo itself. */
+.prose h1,
+.prose h2,
+.prose h3,
+.prose h4 {
+  font-family: 'Playfair Display', Georgia, Cambria, 'Times New Roman', serif;
+}
+
+code,
+kbd,
+pre,
+.prose code,
+.prose pre {
+  font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+/* ── Chat bubbles ───────────────────────────────────────────────────────────
+ * Ported from the legacy frontend (frontend/src/components/Chat.tsx):
+ *   user       bg-gradient-to-br from-liturgy-600 to-violet-600 text-white
+ *              rounded-2xl rounded-br-md px-[12px] py-3
+ *   assistant  bg-bg-card border border-border text-text-primary
+ *              rounded-2xl rounded-bl-md px-[12px] py-3
+ * Both capped at max-w-[85%] sm:max-w-[70%] there; Chainlit already caps the
+ * user bubble at 70%, the assistant bubble is capped here.
+ *
+ * Chainlit ships no `user-message` class (only `ai-message`), so the user
+ * bubble is identified by the utility classes Chainlit itself gives it
+ * (`bg-accent` + `rounded-3xl`) *inside a hover group row* — the composer has
+ * those same two classes, hence the structural part of the selector. If a
+ * Chainlit upgrade changes either, this rule stops matching and the stock look
+ * returns; check after each bump. */
+
+div[class~='group'] > [class~='bg-accent'][class~='rounded-3xl'] {
+  background-image: linear-gradient(to bottom right, #c06e22, #7c1dff);
+  color: #fff;
+  border-radius: 16px 16px 6px 16px;
+  padding: 12px;
+  /* The prose plugin sets its own colours; keep the bubble's text white. */
+  --tw-prose-body: #fff;
+  --tw-prose-headings: #fff;
+  --tw-prose-bold: #fff;
+  --tw-prose-quotes: #fff;
+  --tw-prose-quote-borders: rgb(255 255 255 / 40%);
+  --tw-prose-bullets: rgb(255 255 255 / 70%);
+  --tw-prose-counters: rgb(255 255 255 / 80%);
+}
+
+.ai-message .message-content {
+  background: hsl(var(--card));
+  border: 1px solid hsl(var(--border));
+  border-radius: 16px 16px 16px 6px;
+  padding: 12px;
+  max-width: 70%;
+}
+
+@media (max-width: 640px) {
+  .ai-message .message-content {
+    max-width: 85%;
+  }
+}
+
+/* ── Brand mark legibility on the dark theme ────────────────────────────────
+ * The mark is a near-black 3D glyph (faces between roughly 4% and 18%
+ * lightness) designed for a light ground. On Chainlit's stock surfaces
+ * (background 13%, card 18%) its lower half has no contrast at all, so the
+ * dark palette is lifted into graphite: every surface sits above the glyph,
+ * the white facet keeps its pop, and layering (card > background > sidebar) is
+ * preserved. No plate, outline or shadow is drawn around the logo itself —
+ * brand guidelines only sanction an approved reversed artwork for that. */
 html.dark {
   --background: 0 0% 22%;
   --card: 0 0% 26%;
@@ -41,6 +111,14 @@ html.dark {
   --primary-foreground: 40 43% 97%;
   --ring: 340 62% 44%;
   --sidebar-primary: 340 62% 44%;
+}
+
+html:root {
+  /* Deep liturgical red replaces Chainlit's pink accent */
+  --primary: 340 62% 32%;
+  --primary-foreground: 40 43% 97%;
+  --ring: 340 62% 32%;
+  --sidebar-primary: 340 62% 32%;
 }
 
 /* The message composer keeps a hairline border instead of a filled card */

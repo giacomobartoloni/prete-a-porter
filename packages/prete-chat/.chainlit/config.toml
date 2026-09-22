@@ -26,7 +26,10 @@ confirm_new_chat = true
 # the favicon route picks up public/favicon.* and the assistant avatar uses /logo.
 logo_file_url = "/logo"
 default_avatar_file_url = "/logo"
-custom_css = "/public/custom.css"
+# The `?v=` suffix is a cache-buster: Chainlit serves public/ statically with a
+# long-lived cache entry, so a browser keeps the old stylesheet after a deploy.
+# Bump the number whenever custom.css changes.
+custom_css = "/public/custom.css?v=3"
 
 [meta]
 # Chainlit refuses any config file whose marker is <= 0.3.0; keep this in step

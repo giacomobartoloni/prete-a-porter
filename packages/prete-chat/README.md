@@ -68,9 +68,12 @@ uv run python scripts/create_user.py --email don@example.com --name "Don Mario"
 | Name, description, `cot = "tool_call"`, logo, custom CSS | `.chainlit/config.toml` |
 | Logo / favicon | `public/logo_light.png`, `public/logo_dark.png` (theme-aware `GET /logo`), `public/favicon.png` — copies of the legacy frontend's `frontend/public/logo.png` |
 | Brand colours | `public/custom.css` (Chainlit's shadcn CSS variables only; no frontend patching) |
+| Typography and chat bubbles | `public/custom.css`, ported from the legacy frontend: Inter (UI/body), Playfair Display (headings), JetBrains Mono (code), the user bubble gradient `#c06e22 → #7c1dff` and the card-style assistant bubble, both with the 16px/6px radii and 12px padding from `frontend/src/components/Chat.tsx` |
 | Welcome readme ("Leggimi") | `chainlit.md` at the package root — Chainlit's app root, not `public/` |
 | Empty-state suggestions | `@cl.set_starters` in `app.py` |
 | Italian strings | Chainlit's bundled `it` catalogue (`[UI] language = "it"`) |
+
+`custom_css` carries a `?v=` cache-buster (`/public/custom.css?v=N`): Chainlit serves `public/` with a long-lived cache entry, so a browser would otherwise keep the old stylesheet after a deploy. Bump `N` whenever `custom.css` changes.
 
 Per-key translation overrides are deferred on purpose: `load_translation()`
 returns the file found in `.chainlit/translations/` **instead of** the bundled
