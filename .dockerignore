@@ -36,6 +36,9 @@
 # Documentation
 **/*.md
 !README.md
+# The Chainlit UI renders its welcome readme ("Leggimi") from this file:
+# excluding it makes Chainlit generate its own English default at runtime.
+!packages/prete-chat/chainlit.md
 
 # Data and databases
 data/

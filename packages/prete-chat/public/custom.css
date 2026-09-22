@@ -1,12 +1,12 @@
 /* Prête-à-Porter brand tokens for the Chainlit UI.
  *
  * Chainlit styles everything with Tailwind/shadcn CSS variables expressed as
- * HSL triplets; overriding the few brand-relevant ones is enough to carry the
- * identity without patching the frontend. Keep this file small: the stock UI
- * is the point of using Chainlit.
+ * HSL triplets; overriding a few of them is enough to carry the identity
+ * without patching the frontend. Keep this file small: the stock UI is the
+ * point of using Chainlit.
  *
  * The bundled stylesheet is linked *after* this file, so equal-specificity
- * selectors would lose: `html:root` raises the specificity of these tokens.
+ * selectors would lose: `html:root` / `html.dark` raise the specificity.
  */
 
 html:root {
@@ -17,28 +17,33 @@ html:root {
   --sidebar-primary: 340 62% 32%;
 }
 
+/* Dark theme: the brand mark is a near-black 3D glyph (faces between roughly
+ * 4% and 18% lightness) designed for a light ground. On Chainlit's stock
+ * surfaces (background 13%, card 18%) its lower half has no contrast at all,
+ * so the dark palette is lifted into graphite: every surface sits above the
+ * glyph, the white facet keeps its pop, and layering (card > background >
+ * sidebar) is preserved. No plate or border is drawn around the logo itself. */
 html.dark {
+  --background: 0 0% 22%;
+  --card: 0 0% 26%;
+  --popover: 0 0% 26%;
+  --secondary: 0 0% 26%;
+  --muted: 0 0% 30%;
+  --muted-foreground: 0 0% 76%;
+  --accent: 0 0% 30%;
+  --border: 0 0% 32%;
+  --input: 0 0% 32%;
+
+  --sidebar-background: 0 0% 18%;
+  --sidebar-accent: 0 0% 22%;
+
   --primary: 340 62% 44%;
   --primary-foreground: 40 43% 97%;
   --ring: 340 62% 44%;
+  --sidebar-primary: 340 62% 44%;
 }
 
 /* The message composer keeps a hairline border instead of a filled card */
 #message-composer {
   border: 1px solid hsl(var(--border));
-}
-
-/* Brand mark legibility on the dark theme.
- *
- * The mark is a near-black 3D glyph designed for a light ground; on
- * `--background: 0 0% 13%` only its bevels and white facet read. Chainlit
- * renders the large logo as `img.logo` (200px) on the login page and the empty
- * state, so it gets its own light plate there; message avatars use a different
- * element and keep the mark untouched. The light theme needs nothing: the
- * glyph already sits on a light ground. */
-html.dark img.logo {
-  background: #f7f5f2;
-  border-radius: 26px;
-  padding: 12px;
-  box-shadow: 0 10px 30px rgb(0 0 0 / 45%);
 }
