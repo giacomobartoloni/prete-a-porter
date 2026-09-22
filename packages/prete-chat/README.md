@@ -66,7 +66,7 @@ uv run python scripts/create_user.py --email don@example.com --name "Don Mario"
 | Item | Where |
 |---|---|
 | Name, description, `cot = "tool_call"`, logo, custom CSS | `.chainlit/config.toml` |
-| Logo / favicon | `public/logo.svg`, `public/favicon.svg` (the favicon is picked up automatically from `public/favicon.*`) |
+| Logo / favicon | `public/logo_light.png`, `public/logo_dark.png` (theme-aware `GET /logo`), `public/favicon.png` — copies of the legacy frontend's `frontend/public/logo.png` |
 | Brand colours | `public/custom.css` (Chainlit's shadcn CSS variables only; no frontend patching) |
 | Welcome readme ("Leggimi") | `chainlit.md` at the package root — Chainlit's app root, not `public/` |
 | Empty-state suggestions | `@cl.set_starters` in `app.py` |

@@ -21,8 +21,10 @@ description = "Assistente per la preparazione delle omelie e per i dati liturgic
 language = "it"
 cot = "tool_call"
 confirm_new_chat = true
-# The logo is picked up automatically from public/logo_{light,dark}.svg (GET /logo);
-# the assistant avatar uses the same theme-aware mark.
+# Brand mark: the same asset the legacy frontend ships (frontend/public/logo.png),
+# installed as public/logo_{light,dark}.png for Chainlit's theme-aware GET /logo;
+# the favicon route picks up public/favicon.* and the assistant avatar uses /logo.
+logo_file_url = "/logo"
 default_avatar_file_url = "/logo"
 custom_css = "/public/custom.css"
 
