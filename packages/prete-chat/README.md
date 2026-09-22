@@ -66,7 +66,7 @@ uv run python scripts/create_user.py --email don@example.com --name "Don Mario"
 | Item | Where |
 |---|---|
 | Name, description, `cot = "tool_call"`, logo, custom CSS | `.chainlit/config.toml` |
-| Logo / favicon | `public/logo_light.png`, `public/logo_dark.png` (theme-aware `GET /logo`), `public/favicon.png` — copies of the legacy frontend's `frontend/public/logo.png` |
+| Logo / favicon | `public/logo_light.png`, `public/logo_dark.png` (theme-aware `GET /logo`, 500×500) and `public/favicon.png` (64×64, area-averaged with premultiplied alpha from the same asset) — the legacy frontend ships only `frontend/public/logo.png`, no favicon of its own |
 | Brand colours | `public/custom.css` (Chainlit's shadcn CSS variables only; no frontend patching) |
 | Typography and chat bubbles | `public/custom.css`, ported from the legacy frontend: Inter (UI/body), Playfair Display (headings), JetBrains Mono (code), the user bubble gradient `#c06e22 → #7c1dff` and the card-style assistant bubble, both with the 16px/6px radii and 12px padding from `frontend/src/components/Chat.tsx` |
 | Welcome readme ("Leggimi") | `chainlit.md` at the package root — Chainlit's app root, not `public/` |
