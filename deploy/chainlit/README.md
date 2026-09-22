@@ -32,16 +32,66 @@ service running without history and without login.
 
 ## Users
 
-Chainlit has no stock signup; accounts are provisioned by an operator:
+Accounts are provisioned by an operator. Chainlit ships **no signup**: no
+registration form, no registration route and no flag to enable (its login page
+offers email + password and the configured OAuth providers, nothing else), so
+`scripts/create_user.py` is the only account-creation path. It stores a bcrypt
+hash in the Chainlit user metadata.
+
+Create or update an account (stack running, from the repository root):
 
 ```bash
 docker compose -f docker-compose.yml -f deploy/chainlit/docker-compose.chainlit.yml \
   exec prete-chat uv run python scripts/create_user.py --email don@example.com --name "Don Mario"
 ```
 
-Passwords are stored as bcrypt hashes (cost 10) in the Chainlit user metadata,
-the same cost the legacy frontend used. Re-running the command updates the name
-and password of an existing account.
+The password is read from the prompt (`getpass`), so it never lands in the shell
+history or the process list. Do **not** add `-T` to `exec`: without a TTY the
+prompt degrades.
+
+Non-interactive variant — convenient in scripts, but the password stays in the
+shell history and in the process list:
+
+```bash
+docker compose -f docker-compose.yml -f deploy/chainlit/docker-compose.chainlit.yml \
+  exec prete-chat uv run python scripts/create_user.py \
+  --email don@example.com --name "Don Mario" --password 'the-password'
+```
+
+Semantics:
+
+- `--email` is the login identifier, normalised with `strip().lower()`; `--name`
+  is the display name. An empty password is rejected (`Password must not be
+  empty.`).
+- Idempotent: when the identifier exists, the command updates its name and hash
+  and prints `User … updated.` — this is also how a password is **reset**
+  (re-run with the same email). Otherwise it prints `User … created.`
+- Storage: one row in `users` (UUID, unique `identifier`) with
+  `metadata = {"name": …, "password_hash": "<bcrypt cost 10>"}`. Cost 10 matches
+  the legacy frontend, so hashes stay portable.
+- Login: the `password_auth` callback in
+  `packages/prete-chat/src/prete_chat/auth.py`. An unknown user and a wrong
+  password both return `None`, so the login page cannot be used to enumerate
+  accounts.
+- Runtime requirements: `DATABASE_URL=postgresql+asyncpg://…` (the overlay sets
+  it) and a non-empty `CHAINLIT_AUTH_SECRET`; without the secret the service
+  fails at startup with `ConfigurationError`.
+- The database publishes no port, so provisioning goes through `exec`; running
+  the script from the host would first require publishing it.
+
+Verification:
+
+```bash
+docker compose -f docker-compose.yml -f deploy/chainlit/docker-compose.chainlit.yml \
+  exec prete-chat-db psql -U chainlit -d chainlit \
+  -c "select identifier, metadata->>'name' as name from users;"
+```
+
+`users` has no `display_name` column — the name lives in `metadata`. Deleting a
+row from `users` cascades through `threads` and from there to `steps`,
+`elements` and `feedbacks` (`ON DELETE CASCADE` in `init.sql`).
+
+Then sign in at <http://localhost:3003> with the email and password.
 
 ## Schema and upgrades
 

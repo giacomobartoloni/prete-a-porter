@@ -61,6 +61,10 @@ hashes (cost 10) in the Chainlit user metadata:
 uv run python scripts/create_user.py --email don@example.com --name "Don Mario"
 ```
 
+The command runs inside the service container (the database publishes no port);
+the operator procedure — interactive and non-interactive forms, semantics and
+verification query — lives in `deploy/chainlit/README.md` → Users.
+
 ## Branding and language
 
 | Item | Where |
