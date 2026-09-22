@@ -92,7 +92,10 @@ div[class~='group'] > [class~='bg-accent'][class~='rounded-3xl'] {
  * dark palette is lifted into graphite: every surface sits above the glyph,
  * the white facet keeps its pop, and layering (card > background > sidebar) is
  * preserved. No plate, outline or shadow is drawn around the logo itself —
- * brand guidelines only sanction an approved reversed artwork for that. */
+ * brand guidelines only sanction an approved reversed artwork for that.
+ * Reversed variants were prototyped and reviewed with the owner on 2026-09-22;
+ * the original artwork was kept, so the mark deliberately stays below the WCAG
+ * 3:1 non-text contrast threshold (rationale in README.md). */
 html.dark {
   --background: 0 0% 22%;
   --card: 0 0% 26%;

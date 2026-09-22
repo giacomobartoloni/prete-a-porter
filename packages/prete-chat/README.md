@@ -75,6 +75,8 @@ uv run python scripts/create_user.py --email don@example.com --name "Don Mario"
 
 `custom_css` carries a `?v=` cache-buster (`/public/custom.css?v=N`): Chainlit serves `public/` with a long-lived cache entry, so a browser would otherwise keep the old stylesheet after a deploy. Bump `N` whenever `custom.css` changes.
 
+**Dark-theme mark decision (2026-09-22).** The mark is a near-black 3D glyph; on Chainlit's stock dark surfaces its lower faces vanish, so `custom.css` lifts the dark palette into graphite (`--background` 13 % → 22 %, cards 18 % → 26 %, sidebar 9 % → 18 %). Four alternatives were prototyped and reviewed with the owner — a light plate behind the mark, and three reversed artworks (luminance inversion; flat light monochrome; light faces with preserved shading) — and **the owner chose to keep the original artwork on the graphite surfaces**. Consequence, recorded as required when relying on the logo exemption of WCAG 2.2 SC 1.4.11: the mark's faces sit at roughly 1.2–1.7:1 against the dark surface, below the 3:1 non-text threshold; the presentation is kept because it is the brand's own artwork, and the product name is available as text everywhere the mark appears (page title, sidebar header, readme). Revisit only if a designer supplies an approved reversed asset — the previous prototyping script is gone, but the transformation is one luminance remap of the PNG.
+
 Per-key translation overrides are deferred on purpose: `load_translation()`
 returns the file found in `.chainlit/translations/` **instead of** the bundled
 catalogue, and that directory is generated at startup (ignored in git), so an
