@@ -27,3 +27,18 @@ html.dark {
 #message-composer {
   border: 1px solid hsl(var(--border));
 }
+
+/* Brand mark legibility on the dark theme.
+ *
+ * The mark is a near-black 3D glyph designed for a light ground; on
+ * `--background: 0 0% 13%` only its bevels and white facet read. Chainlit
+ * renders the large logo as `img.logo` (200px) on the login page and the empty
+ * state, so it gets its own light plate there; message avatars use a different
+ * element and keep the mark untouched. The light theme needs nothing: the
+ * glyph already sits on a light ground. */
+html.dark img.logo {
+  background: #f7f5f2;
+  border-radius: 26px;
+  padding: 12px;
+  box-shadow: 0 10px 30px rgb(0 0 0 / 45%);
+}
