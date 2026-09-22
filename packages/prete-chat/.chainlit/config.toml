@@ -22,14 +22,21 @@ language = "it"
 cot = "tool_call"
 confirm_new_chat = true
 # Brand mark: the same asset the legacy frontend ships (frontend/public/logo.png),
-# installed as public/logo_{light,dark}.png for Chainlit's theme-aware GET /logo;
-# the favicon route picks up public/favicon.* and the assistant avatar uses /logo.
-logo_file_url = "/logo"
-default_avatar_file_url = "/logo"
+# installed as public/logo_{light,dark}.png. Both marks point at the static file
+# rather than at Chainlit's /logo route: that route answers with plain
+# last-modified/etag, and browsers kept serving a superseded artwork from their
+# cache long after a deploy — seen live on 2026-09-22, where the mark reported as
+# missing was a stale response. public/ is cache-busted by URL instead, exactly
+# like custom.css below. Theme awareness is moot while the two variants are
+# byte-identical; an approved reversed dark artwork means restoring
+# logo_file_url = "/logo" (theme-aware, at the cost of that staleness) or
+# versioning a second file. The favicon route still picks up public/favicon.*.
+logo_file_url = "/public/logo_light.png?v=1"
+default_avatar_file_url = "/public/logo_light.png?v=1"
 # The `?v=` suffix is a cache-buster: Chainlit serves public/ statically with a
 # long-lived cache entry, so a browser keeps the old stylesheet after a deploy.
 # Bump the number whenever custom.css changes.
-custom_css = "/public/custom.css?v=3"
+custom_css = "/public/custom.css?v=9"
 
 [meta]
 # Chainlit refuses any config file whose marker is <= 0.3.0; keep this in step

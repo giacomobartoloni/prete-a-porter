@@ -91,11 +91,17 @@ div[class~='group'] > [class~='bg-accent'][class~='rounded-3xl'] {
  * (background 13%, card 18%) its lower half has no contrast at all, so the
  * dark palette is lifted into graphite: every surface sits above the glyph,
  * the white facet keeps its pop, and layering (card > background > sidebar) is
- * preserved. No plate, outline or shadow is drawn around the logo itself —
- * brand guidelines only sanction an approved reversed artwork for that.
- * Reversed variants were prototyped and reviewed with the owner on 2026-09-22;
- * the original artwork was kept, so the mark deliberately stays below the WCAG
- * 3:1 non-text contrast threshold (rationale in README.md). */
+ * preserved.
+ *
+ * Graphite alone proved insufficient on the live surfaces: at 200px the mark
+ * read as absent, reported by the owner on 2026-09-22, so the legacy
+ * frontend's own remedy is back (frontend/src/app/globals.css:
+ * `.dark .logo-glow`) — a 2px white-10% drop shadow that separates the
+ * silhouette from the ground. The artwork is unchanged; reversed variants were
+ * prototyped and rejected the same day. The glyph's faces still sit at roughly
+ * 1.4–1.7:1 against the graphite, below the WCAG 3:1 non-text threshold: the
+ * rim light is the separation cue, and the name as text is the fallback (page
+ * title, sidebar wordmark, readme). */
 html.dark {
   --background: 0 0% 22%;
   --card: 0 0% 26%;
@@ -116,12 +122,186 @@ html.dark {
   --sidebar-primary: 340 62% 44%;
 }
 
+/* Wherever the mark is rendered large: the welcome screen and the login page
+ * (Chainlit's `img.logo`) and the sidebar brand row's mark. On the brand
+ * pseudo-element the filter also covers the wordmark — a white halo behind
+ * near-white text is imperceptible — because the mark and the label share one
+ * element. */
+html.dark img.logo,
+html.dark [data-sidebar='sidebar'] [data-sidebar='header']::before {
+  filter: drop-shadow(0 0 2px rgb(255 255 255 / 10%));
+}
+
 html:root {
   /* Deep liturgical red replaces Chainlit's pink accent */
   --primary: 340 62% 32%;
   --primary-foreground: 40 43% 97%;
   --ring: 340 62% 32%;
   --sidebar-primary: 340 62% 32%;
+}
+
+/* ── Sidebar header: brand line, then the action rows ───────────────────────
+ * The legacy sidebar opened with the mark and the wordmark at the top-left and
+ * the collapse control at the far right of that same line
+ * (frontend/src/components/Sidebar.tsx, "Top section: logo + toggle"), then a
+ * full-width icon-plus-label action row ("new conversation": `flex items-center
+ * gap-2 w-full px-3 py-2 rounded-lg`, Plus icon then label). The owner asked for
+ * that arrangement on 2026-09-22, modelled on Gemini's sidebar: brand line with
+ * the trigger on its right edge, search and new chat below it with their label
+ * beside the icon.
+ *
+ * Chainlit's sidebar header renders nothing but one stock row — a
+ * `flex items-center justify-between` div holding the trigger on the left and a
+ * group with search + new chat on the right (LeftSidebar/index.tsx →
+ * SidebarHeader). So the brand is injected as a pseudo-element (first flex item
+ * of the header, no DOM node patched, survives every React re-render), the
+ * trigger is lifted onto that line with `position: absolute`, and both groups
+ * are turned into stacked rows. Nothing here needs a patched frontend.
+ *
+ * Labels mirror the buttons' own Italian tooltips (chainlit's bundled
+ * it.json: `navigation.newChat.button` = "Nuova Chat",
+ * `threadHistory.sidebar.filters.search` = "Cerca"). `content` can read neither
+ * the config nor the catalogue, so they are literals — same caveat as the
+ * wordmark: they must move with a Chainlit rename, and the tooltips still fire
+ * on hover. Order follows the reference (new chat first): Chainlit nests the
+ * new-chat button one div deeper than the search button, hence `:has()`.
+ *
+ * Sizes keep the legacy ratio at Chainlit's denser scale: 28px mark, 17px
+ * Playfair label. `content` cannot read the config, so the wordmark is a
+ * literal: it must move with `[UI] name` in .chainlit/config.toml (the app's
+ * accessible name still comes from there — page title and assistant avatar).
+ *
+ * The mark is public/logo_mark.png (96×96, trimmed to its alpha box from the
+ * 500×500 master, like public/favicon.png) because the glyph is drawn at 28px;
+ * both theme variants of the artwork are byte-identical today, so one URL
+ * serves both palettes — a reversed artwork would add an `html.dark` rule.
+ *
+ * The glyph icons carry Tailwind `!size-*` (important), so the one size
+ * override below needs `!important` as well to give both rows one icon column.
+ */
+[data-sidebar='sidebar'] [data-sidebar='header']::before {
+  content: 'Prête-à-Porter';
+  background: url('/public/logo_mark.png') no-repeat left center / 28px 28px;
+  min-height: 28px;
+  padding-left: 38px;
+  color: hsl(var(--sidebar-foreground));
+  font-family: 'Playfair Display', Georgia, Cambria, 'Times New Roman', serif;
+  font-size: 17px;
+  font-weight: 600;
+  line-height: 28px;
+  white-space: nowrap;
+}
+
+/* The trigger's containing block, so it can join the brand line. */
+[data-sidebar='sidebar'] [data-sidebar='header'] {
+  position: relative;
+}
+
+/* Brand line, far right. `top` centres the 36px stock button on the 28px brand
+ * line: header padding-top 12px + (28 − 36) / 2. */
+[data-sidebar='sidebar'] #sidebar-trigger-button {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+}
+
+/* The stock control row and the search/new-chat group become stacks of
+ * full-width rows. */
+[data-sidebar='sidebar'] [data-sidebar='header'] > div,
+[data-sidebar='sidebar'] [data-sidebar='header'] > div > div {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 2px;
+}
+
+/* New chat above search, as in the reference. */
+[data-sidebar='sidebar'] [data-sidebar='header'] div:has(> #new-chat-button) {
+  order: -1;
+}
+
+/* One row per action: icon column, label, hover pill over the full width. */
+[data-sidebar='sidebar'] #search-chats-button,
+[data-sidebar='sidebar'] #new-chat-button {
+  width: 100%;
+  justify-content: flex-start;
+  gap: 0.5rem;
+  padding-inline: 0.5rem;
+  color: hsl(var(--sidebar-foreground));
+}
+
+[data-sidebar='sidebar'] #search-chats-button svg,
+[data-sidebar='sidebar'] #new-chat-button svg {
+  width: 20px !important;
+  height: 20px !important;
+}
+
+[data-sidebar='sidebar'] #new-chat-button::after {
+  content: 'Nuova Chat';
+}
+
+[data-sidebar='sidebar'] #search-chats-button::after {
+  content: 'Cerca';
+}
+
+/* The sidebar collapses off-canvas (`data-collapsible="offcanvas"`), so there is
+ * no icon rail to reflow; what remains on screen is the trigger Chainlit adds to
+ * the main header (`#header`, beside the new-chat button). The owner asked for
+ * the brand mark there, swapping to the stock open-sidebar glyph on hover — the
+ * same trade Gemini makes, tooltip included ("Apri barra laterale", already in
+ * the bundled it catalogue; it still fires).
+ *
+ * `background-image` alone, never the `background` shorthand: the stock hover
+ * pill is a background-colour rule and a shorthand would outrank and erase it.
+ * The glyph stays in the box at `opacity: 0` so the hit target and the 36px box
+ * are untouched. */
+#header #sidebar-trigger-button {
+  background-image: url('/public/logo_mark.png');
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: 24px 24px;
+}
+
+#header #sidebar-trigger-button svg {
+  opacity: 0;
+}
+
+#header #sidebar-trigger-button:hover {
+  background-image: none;
+}
+
+#header #sidebar-trigger-button:hover svg {
+  opacity: 1;
+}
+
+/* Same rim light as the mark elsewhere on the graphite dark surfaces; scoped to
+ * the resting state so it never outlines the hover pill. */
+html.dark #header #sidebar-trigger-button:not(:hover) {
+  filter: drop-shadow(0 0 2px rgb(255 255 255 / 10%));
+}
+
+/* ── Closed sidebar: the top-left column ────────────────────────────────────
+ * With the panel closed Chainlit's main header carries the trigger and the
+ * new-chat button side by side, in one `flex items-center` group. The owner
+ * asked (2026-09-22, same Gemini reference) for that group to stack: the mark
+ * on top, new chat below it — the rail order of the reference, as far as an
+ * off-canvas collapse allows.
+ *
+ * `:has()` keeps this to the closed state: the trigger only ever sits in
+ * `#header` while the panel is away (when open, the sidebar owns it), so the
+ * open layout and the thread list keep their stock header. The header grows
+ * from its stock 60px to the column's height, and `align-items: flex-start`
+ * keeps the right-hand controls (readme, theme, avatar) on the mark's line.
+ */
+#header:has(#sidebar-trigger-button) {
+  height: auto;
+  min-height: 60px;
+  align-items: flex-start;
+}
+
+#header > div:has(> #sidebar-trigger-button) {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
 }
 
 /* The message composer keeps a hairline border instead of a filled card */
