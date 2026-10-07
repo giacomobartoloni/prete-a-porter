@@ -84,6 +84,7 @@ class TestCreateUserPreservesPasswordHash:
                 id=existing.id,
                 identifier=user.identifier,
                 createdAt=existing.createdAt,
+                display_name=user.display_name,
                 metadata=dict(user.metadata or {}),
             )
 
@@ -103,5 +104,42 @@ class TestCreateUserPreservesPasswordHash:
         assert len(persisted) == 1
         assert persisted[0].metadata[auth.PASSWORD_METADATA_KEY] == stored_hash
         assert persisted[0].metadata[auth.NAME_METADATA_KEY] == "Don Mario"
-        assert result.metadata[auth.PASSWORD_METADATA_KEY] == stored_hash
+        # Public return value is session-safe.
+        assert auth.PASSWORD_METADATA_KEY not in result.metadata
+        await layer.close()
+
+
+class TestPublicVersusAuthGetters:
+    @pytest.mark.asyncio
+    async def test_public_get_user_strips_password_hash(self, monkeypatch):
+        layer = SerializedSQLAlchemyDataLayer(
+            conninfo="postgresql+asyncpg://chainlit:pw@localhost:5432/chainlit"
+        )
+        stored_hash = auth.hash_password("segreta")
+        raw = PersistedUser(
+            id="00000000-0000-0000-0000-000000000002",
+            identifier="don@example.com",
+            createdAt="2026-09-18T00:00:00Z",
+            display_name="Don Mario",
+            metadata={
+                auth.NAME_METADATA_KEY: "Don Mario",
+                auth.PASSWORD_METADATA_KEY: stored_hash,
+            },
+        )
+
+        async def fake_get_user(self, identifier: str):
+            return raw
+
+        monkeypatch.setattr(SQLAlchemyDataLayer, "get_user", fake_get_user)
+
+        public = await layer.get_user("don@example.com")
+        private = await layer.get_user_for_auth("don@example.com")
+
+        assert public is not None
+        assert auth.PASSWORD_METADATA_KEY not in public.metadata
+        assert public.metadata[auth.NAME_METADATA_KEY] == "Don Mario"
+        assert private is not None
+        assert private.metadata[auth.PASSWORD_METADATA_KEY] == stored_hash
+        # Raw object must not be mutated.
+        assert auth.PASSWORD_METADATA_KEY in raw.metadata
         await layer.close()

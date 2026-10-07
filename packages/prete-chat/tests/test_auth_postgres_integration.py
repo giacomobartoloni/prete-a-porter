@@ -52,7 +52,9 @@ class TestPasswordHashServerSide:
         email = f"don-{uuid.uuid4().hex[:8]}@example.test"
         password = "segreta-integration"
         identifier = await _provision(layer, email, "Don Integration", password)
-        stored_before = (await layer.get_user(identifier)).metadata[auth.PASSWORD_METADATA_KEY]
+        stored_before = (await layer.get_user_for_auth(identifier)).metadata[
+            auth.PASSWORD_METADATA_KEY
+        ]
 
         monkeypatch.setattr(auth, "get_data_layer", lambda: layer)
         session_user = await auth.password_auth(email, password)
@@ -63,9 +65,14 @@ class TestPasswordHashServerSide:
         # Simulate Chainlit's post-login persistence of the sanitized User.
         await layer.create_user(session_user)
 
-        persisted = await layer.get_user(identifier)
+        public = await layer.get_user(identifier)
+        assert public is not None
+        assert auth.PASSWORD_METADATA_KEY not in public.metadata
+
+        persisted = await layer.get_user_for_auth(identifier)
         assert persisted is not None
         assert persisted.metadata[auth.PASSWORD_METADATA_KEY] == stored_before
+        assert auth.verify_password(password, persisted.metadata[auth.PASSWORD_METADATA_KEY])
 
         again = await auth.password_auth(email, password)
         assert again is not None
@@ -104,6 +111,11 @@ class TestChainlitHttpUserEndpoint:
             payload = user.json()
             metadata = payload.get("metadata") or {}
             assert auth.PASSWORD_METADATA_KEY not in metadata
+
+            raw = await layer.get_user_for_auth(auth.normalize_identifier(email))
+            assert raw is not None
+            assert auth.PASSWORD_METADATA_KEY in raw.metadata
+            assert auth.verify_password(password, raw.metadata[auth.PASSWORD_METADATA_KEY])
 
             # Second login must still succeed (hash not wiped).
             login2 = await client.post(

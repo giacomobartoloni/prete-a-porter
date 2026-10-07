@@ -12,6 +12,23 @@ class _FakeLayer:
         self.queried: list[str] = []
 
     async def get_user(self, identifier: str) -> PersistedUser | None:
+        # Public getter: session-safe (no password_hash).
+        if self.user is None:
+            return None
+        metadata = {
+            k: v
+            for k, v in (self.user.metadata or {}).items()
+            if k != auth.PASSWORD_METADATA_KEY
+        }
+        return PersistedUser(
+            id=self.user.id,
+            identifier=self.user.identifier,
+            createdAt=self.user.createdAt,
+            display_name=self.user.display_name,
+            metadata=metadata,
+        )
+
+    async def get_user_for_auth(self, identifier: str) -> PersistedUser | None:
         self.queried.append(identifier)
         return self.user
 

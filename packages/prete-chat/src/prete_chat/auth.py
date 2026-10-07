@@ -2,8 +2,9 @@
 
 Accounts are operator-provisioned (``scripts/create_user.py``); Chainlit has no
 stock signup. The bcrypt hash lives in the persisted user metadata (cost 10,
-matching the legacy frontend) but is never returned on the session ``User`` —
-see ``data_layer.SerializedSQLAlchemyDataLayer.create_user``.
+matching the legacy frontend) but is never returned on the session ``User``
+or from the public data-layer getter — see
+``data_layer.SerializedSQLAlchemyDataLayer.get_user_for_auth``.
 
 The core has no user entity: the identifier is used for the per-user quota and
 the boundary log line, nothing else.
@@ -42,15 +43,18 @@ async def password_auth(username: str, password: str) -> cl.User | None:
     Returns ``None`` for every failure (unknown user, wrong password, no data
     layer) so the login page cannot be used to enumerate accounts.
 
-    The returned ``User`` is what Chainlit puts in the session JWT and exposes
-    via ``/user``, so it must never carry ``password_hash``. The custom data
-    layer re-injects the hash only on the persistence path when Chainlit calls
-    ``create_user`` after a successful login.
+    The returned ``User`` is what Chainlit puts in the session JWT, so it must
+    never carry ``password_hash``. Credentials are loaded via
+    ``get_user_for_auth`` because the public ``get_user`` is session-safe and
+    strips the hash (Chainlit also reloads ``get_user`` for ``/user``).
     """
     layer = get_data_layer()
     if layer is None:
         return None
-    persisted = await layer.get_user(normalize_identifier(username))
+    get_user_for_auth = getattr(layer, "get_user_for_auth", None)
+    if get_user_for_auth is None:
+        return None
+    persisted = await get_user_for_auth(normalize_identifier(username))
     if persisted is None:
         return None
     metadata = persisted.metadata or {}
