@@ -15,7 +15,7 @@ from typing import Any, Dict, Optional
 import httpx
 import pytest
 
-from conftest import MOCK_LITURGICAL_DATA, a2a_auth_headers
+from conftest import MOCK_LITURGICAL_DATA, a2a_auth_headers, require_optional_live
 
 
 # Configuration from contract
@@ -48,6 +48,12 @@ def is_agent_available() -> bool:
         return response.status_code == 200
     except (httpx.ConnectError, httpx.TimeoutException):
         return False
+
+
+def require_homily_agent() -> None:
+    """Fail required live checks when the homily agent is unavailable."""
+    if not is_agent_available():
+        pytest.fail("Homily agent not running on port 8002")
 
 
 @pytest.fixture
@@ -93,17 +99,13 @@ def make_message_send(
 class TestHomilyAgentContract:
     """Contract tests for homily agent A2A methods."""
 
-    pytestmark = pytest.mark.skipif(
-        not is_agent_available(),
-        reason="Homily agent not running on port 8002",
-    )
-
     # -------------------------------------------------------------------------
-    # agent.ping tests
+    # agent.ping tests (required when the agent is under test)
     # -------------------------------------------------------------------------
 
     def test_agent_ping_format(self, http_client: httpx.Client):
         """Verify agent.ping via standard message/send."""
+        require_homily_agent()
         data = make_message_send("agent.ping", client=http_client)
         reply = extract_reply(data)
 
@@ -113,6 +115,7 @@ class TestHomilyAgentContract:
 
     def test_agent_ping_task_structure(self, http_client: httpx.Client):
         """Verify message/send returns valid Task structure."""
+        require_homily_agent()
         data = make_message_send("agent.ping", client=http_client)
         task = data["result"]
 
@@ -127,11 +130,14 @@ class TestHomilyAgentContract:
             assert len(msg["parts"]) > 0
 
     # -------------------------------------------------------------------------
-    # homily.generate tests
+    # homily.generate / refine / tone — optional live LLM checks
     # -------------------------------------------------------------------------
 
+    @pytest.mark.optional_live
     def test_generate_format(self, http_client: httpx.Client):
         """Verify homily.generate returns correct format via message/send."""
+        require_optional_live()
+        require_homily_agent()
         data = make_message_send("homily.generate", {
             "liturgical_data": {
                 "first_reading": {"reference": "Genesis 12:1-4a", "text": "The Lord said to Abram...", "type": "First"},
@@ -145,7 +151,7 @@ class TestHomilyAgentContract:
 
         reply = extract_reply(data)
         if "error" in reply:
-            pytest.skip(f"Generate error (may need LLM key): {reply.get('error')}")
+            pytest.fail(f"Generate error: {reply.get('error')}")
 
         assert reply.get("status") == "success"
         assert "data" in reply
@@ -155,12 +161,11 @@ class TestHomilyAgentContract:
             assert section in homily, f"Missing section: {section}"
             assert homily[section]["content"]
 
-    # -------------------------------------------------------------------------
-    # homily.refine tests
-    # -------------------------------------------------------------------------
-
+    @pytest.mark.optional_live
     def test_refine_format(self, http_client: httpx.Client):
         """Verify homily.refine returns correct format via message/send."""
+        require_optional_live()
+        require_homily_agent()
         data = make_message_send("homily.refine", {
             "liturgical_data": MOCK_LITURGICAL_DATA,
             "occasion": "mass",
@@ -173,7 +178,7 @@ class TestHomilyAgentContract:
 
         reply = extract_reply(data)
         if "error" in reply:
-            pytest.skip(f"Refine error: {reply.get('error')}")
+            pytest.fail(f"Refine error: {reply.get('error')}")
 
         assert reply.get("status") == "success"
         assert "data" in reply
@@ -183,12 +188,11 @@ class TestHomilyAgentContract:
             assert section in homily, f"Missing section: {section}"
             assert homily[section]["content"]
 
-    # -------------------------------------------------------------------------
-    # homily.adjust_tone tests
-    # -------------------------------------------------------------------------
-
+    @pytest.mark.optional_live
     def test_adjust_tone_format(self, http_client: httpx.Client):
         """Verify homily.adjust_tone returns correct format via message/send."""
+        require_optional_live()
+        require_homily_agent()
         data = make_message_send("homily.adjust_tone", {
             "liturgical_data": MOCK_LITURGICAL_DATA,
             "occasion": "mass",
@@ -201,7 +205,7 @@ class TestHomilyAgentContract:
 
         reply = extract_reply(data)
         if "error" in reply:
-            pytest.skip(f"Tone adjustment error: {reply.get('error')}")
+            pytest.fail(f"Tone adjustment error: {reply.get('error')}")
 
         assert reply.get("status") == "success"
         assert "data" in reply
@@ -233,19 +237,16 @@ class TestHomilyContractDefinition:
 class TestHomilyAgentErrorHandling:
     """Tests for error handling in homily agent."""
 
-    pytestmark = pytest.mark.skipif(
-        not is_agent_available(),
-        reason="Homily agent not running on port 8002",
-    )
-
     def test_missing_liturgical_data_returns_error(self, http_client: httpx.Client):
         """Verify that missing required params returns an error."""
+        require_homily_agent()
         data = make_message_send("homily.generate", {}, client=http_client)
         reply = extract_reply(data)
         assert "error" in reply
 
     def test_unknown_method_returns_error(self, http_client: httpx.Client):
         """Verify that calling a non-existent method returns an error."""
+        require_homily_agent()
         data = make_message_send("homily.nonexistent", {}, client=http_client)
         reply = extract_reply(data)
         assert "error" in reply

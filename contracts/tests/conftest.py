@@ -95,6 +95,20 @@ def pytest_addoption(parser):
 
 def pytest_configure(config):
     config.addinivalue_line("markers", "slow: marks tests as slow (deselect with '-m \"not slow\"')")
+    config.addinivalue_line(
+        "markers",
+        "optional_live: live upstream/LLM checks; require PRETE_RUN_OPTIONAL_LIVE=1",
+    )
+
+
+def require_optional_live() -> None:
+    """Skip unless the operator explicitly opted into live upstream/LLM checks."""
+    if os.environ.get("PRETE_RUN_OPTIONAL_LIVE", "").strip().lower() not in {
+        "1",
+        "true",
+        "yes",
+    }:
+        pytest.skip("optional live check; set PRETE_RUN_OPTIONAL_LIVE=1 to run")
 
 
 @pytest.fixture(scope="session")

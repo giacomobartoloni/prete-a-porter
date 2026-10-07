@@ -87,32 +87,12 @@ jobs:
 
       - name: Wait for agents to be ready
         run: |
-          echo "Waiting for liturgy agent on port 8001..."
-          for i in {1..30}; do
-            if curl -s http://localhost:8001/health > /dev/null 2>&1; then
-              echo "Liturgy agent is ready"
-              break
-            fi
-            sleep 1
-          done
-
-          echo "Waiting for homily agent on port 8002..."
-          for i in {1..30}; do
-            if curl -s http://localhost:8002/health > /dev/null 2>&1; then
-              echo "Homily agent is ready"
-              break
-            fi
-            sleep 1
-          done
-
-          echo "Waiting for chat orchestrator on port 8000..."
-          for i in {1..30}; do
-            if curl -s http://localhost:8000/health > /dev/null 2>&1; then
-              echo "Chat orchestrator is ready"
-              break
-            fi
-            sleep 1
-          done
+          python contracts/scripts/wait_for_health.py \
+            http://localhost:8001/health \
+            http://localhost:8002/health \
+            http://localhost:8000/health \
+            --attempts 30 \
+            --sleep 1
 
       - name: Run contract tests
         working-directory: contracts

@@ -79,10 +79,9 @@ def to_langchain_messages(
 ) -> list[BaseMessage]:
     """Map OpenAI roles onto LangChain messages.
 
-    Unknown roles become HumanMessage, matching the treatment the WebSocket
-    loop already applies to every history entry. When ``preferences`` are
-    provided, a system message carrying the deterministic block is prepended;
-    it exists only for this invocation and is never persisted by any adapter.
+    Unknown roles become HumanMessage. When ``preferences`` are provided, a
+    system message carrying the deterministic block is prepended; it exists
+    only for this invocation and is never persisted by any adapter.
     """
     converted: list[BaseMessage] = []
     for message in messages:
@@ -98,6 +97,29 @@ def to_langchain_messages(
         if block is not None:
             converted.insert(0, SystemMessage(content=block))
     return converted
+
+
+def websocket_history_to_messages(
+    history: list[dict[str, Any]] | None,
+    text: str,
+) -> list[ChatMessage]:
+    """Build ChatMessages for the legacy WebSocket loop.
+
+    Only ``user`` and ``assistant`` roles are accepted. Missing role defaults
+    to ``user``. Client-supplied ``system`` (or any other) role is coerced to
+    ``user`` so history cannot inject system authority.
+    """
+    messages: list[ChatMessage] = []
+    for entry in history or []:
+        content = entry.get("content")
+        if not content:
+            continue
+        role = entry.get("role") or "user"
+        if role not in ("user", "assistant"):
+            role = "user"
+        messages.append(ChatMessage(role=role, content=content))
+    messages.append(ChatMessage(role="user", content=text))
+    return messages
 
 
 def extract_reply_text(result: dict[str, Any]) -> str:

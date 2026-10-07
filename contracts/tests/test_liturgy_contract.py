@@ -75,11 +75,10 @@ def agent_available():
         return False
 
 
-# Skip marker for when agent is not available
-def skip_if_agent_unavailable(agent_available):
-    """Return pytest.skip if agent is not available."""
+def require_agent_available(agent_available):
+    """Fail required live checks when the liturgy agent is unavailable."""
     if not agent_available:
-        pytest.skip("Liturgy agent not running on port 8001")
+        pytest.fail("Liturgy agent not running on port 8001")
 
 
 async def make_message_send(cmd_method: str, cmd_params: dict | None = None) -> dict:
@@ -106,7 +105,7 @@ class TestLiturgyAgentContract:
     @pytest.mark.asyncio
     async def test_agent_ping_via_message_send(self, agent_available):
         """Verify agent.ping via standard message/send."""
-        skip_if_agent_unavailable(agent_available)
+        require_agent_available(agent_available)
 
         data = await make_message_send("agent.ping")
         reply = extract_reply(data)
@@ -119,7 +118,7 @@ class TestLiturgyAgentContract:
     @pytest.mark.asyncio
     async def test_agent_ping_task_format(self, agent_available):
         """Verify message/send returns valid Task format."""
-        skip_if_agent_unavailable(agent_available)
+        require_agent_available(agent_available)
 
         data = await make_message_send("agent.ping")
         task = data["result"]
@@ -134,33 +133,35 @@ class TestLiturgyAgentContract:
             assert len(msg["parts"]) > 0
 
     @pytest.mark.asyncio
+    @pytest.mark.optional_live
     async def test_get_readings_format(self, agent_available):
-        """Verify get_readings returns correct data format."""
-        skip_if_agent_unavailable(agent_available)
+        """Verify get_readings returns correct data format (optional live upstream)."""
+        from conftest import require_optional_live
+
+        require_optional_live()
+        require_agent_available(agent_available)
 
         data = await make_message_send("liturgy_agent.get_readings", {"occasion": "mass"})
         reply = extract_reply(data)
 
         if "error" in reply:
-            pytest.skip(f"Readings error: {reply.get('error')}")
+            pytest.fail(f"Readings error: {reply.get('error')}")
 
         readings_result = ReadingsResult(**reply)
-        assert readings_result.status in ["success", "error"]
-
-        if readings_result.status == "success":
-            assert readings_result.data is not None
-            assert "date" in readings_result.data or "occasion" in readings_result.data
+        assert readings_result.status == "success"
+        assert readings_result.data is not None
+        assert "date" in readings_result.data or "occasion" in readings_result.data
 
     @pytest.mark.asyncio
     async def test_get_lectionary_format(self, agent_available):
         """Verify get_lectionary returns correct format."""
-        skip_if_agent_unavailable(agent_available)
+        require_agent_available(agent_available)
 
         data = await make_message_send("liturgy_agent.get_lectionary", {"occasion": "marriage"})
         reply = extract_reply(data)
 
         if "error" in reply:
-            pytest.skip(f"Lectionary error: {reply.get('error')}")
+            pytest.fail(f"Lectionary error: {reply.get('error')}")
 
         lectionary_result = LectionaryResult(**reply)
         assert lectionary_result.occasion == "marriage"

@@ -2,6 +2,7 @@
 HTTP and WebSocket route handlers for Chat Orchestrator.
 """
 
+import asyncio
 import json
 import os
 import uuid
@@ -9,8 +10,13 @@ from urllib.parse import parse_qs
 
 import jwt
 from fastapi import Request, WebSocket, WebSocketDisconnect
-from langchain_core.messages import AIMessage, HumanMessage
-
+from .application import (
+    RECURSION_LIMIT,
+    extract_reply_text,
+    to_langchain_messages,
+    websocket_history_to_messages,
+)
+from .config import get_chat_timeout_seconds
 from .exceptions import WebSocketConnectionException, WebSocketMessageException
 from .graph import get_graph
 from .rate_limiter import get_rate_limiter
@@ -147,8 +153,8 @@ async def _message_loop(websocket: WebSocket, graph, session_id: str, user_id: s
             history = []
 
         try:
-            msgs = [HumanMessage(content=h["content"]) for h in history if h.get("content")]
-            msgs.append(HumanMessage(content=text))
+            chat_messages = websocket_history_to_messages(history, text)
+            lc_messages = to_langchain_messages(chat_messages)
 
             limiter = await get_rate_limiter()
             result = await limiter.check_and_increment(user_id)
@@ -171,21 +177,28 @@ async def _message_loop(websocket: WebSocket, graph, session_id: str, user_id: s
                 })
                 continue
 
-            result = await graph.ainvoke(
-                {"messages": msgs, "session_id": session_id, "user_id": user_id},
-                config={"recursion_limit": 15},
-            )
+            try:
+                async with asyncio.timeout(get_chat_timeout_seconds()):
+                    result = await graph.ainvoke(
+                        {
+                            "messages": lc_messages,
+                            "session_id": session_id,
+                            "user_id": user_id,
+                        },
+                        config={"recursion_limit": RECURSION_LIMIT},
+                    )
+            except TimeoutError:
+                await websocket.send_json({
+                    "type": "error",
+                    "error": {
+                        "code": "MESSAGE_PROCESSING_ERROR",
+                        "message": "Si è verificato un errore nel processare il messaggio. Riprova.",
+                        "correlation_id": correlation_id,
+                    },
+                })
+                continue
 
-            ai_messages = [m for m in result["messages"] if isinstance(m, AIMessage)]
-            raw_content = ai_messages[-1].content if ai_messages else "No response"
-            if isinstance(raw_content, list):
-                ai_message = "\n".join(
-                    b.get("text", "") for b in raw_content if isinstance(b, dict) and b.get("type") == "text"
-                ) or str(raw_content)
-            elif not isinstance(raw_content, str):
-                ai_message = str(raw_content)
-            else:
-                ai_message = raw_content
+            ai_message = extract_reply_text(result)
 
             await websocket.send_json({
                 "type": "message",

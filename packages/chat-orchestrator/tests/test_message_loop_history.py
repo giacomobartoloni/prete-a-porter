@@ -51,6 +51,7 @@ class TestMessageLoopHistory:
 
         msgs = graph.ainvoke.call_args[0][0]["messages"]
         assert [m.content for m in msgs] == ["first", "second", "latest"]
+        # Missing role defaults to user.
         assert all(isinstance(m, HumanMessage) for m in msgs)
 
     @pytest.mark.asyncio
