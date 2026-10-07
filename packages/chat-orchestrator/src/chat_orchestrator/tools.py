@@ -40,9 +40,72 @@ def _parse_llm_json(text: str) -> dict:
 
 
 _READING_KEYS = [("first_reading", "First"), ("psalm", "Psalm"), ("second_reading", "Second"), ("gospel", "Gospel")]
+_REQUIRED_READING_KEYS = ("first_reading", "psalm", "gospel")
 _METADATA_KEYS = ("date", "occasion", "season", "color", "year_cycle", "sunday_or_weekday")
 _YEAR_CYCLES = {"A", "B", "C"}
 _WEEKDAY_KINDS = {"Sunday", "Weekday"}
+_OCCASION_ALIASES = {
+    "sunday": "mass",
+    "weekday": "mass",
+    "daily": "mass",
+}
+_CANONICAL_OCCASIONS = frozenset({"mass", "marriage", "baptism", "funeral"})
+
+
+def canonicalize_occasion(value: Any) -> str:
+    """Normalize sunday/weekday/daily to mass; reject unknown occasions."""
+    if value is None or (isinstance(value, str) and not value.strip()):
+        raise ValueError("liturgical occasion is required")
+    if not isinstance(value, str):
+        raise ValueError(f"invalid liturgical occasion type: {type(value).__name__}")
+    normalized = value.strip().lower()
+    normalized = _OCCASION_ALIASES.get(normalized, normalized)
+    if normalized not in _CANONICAL_OCCASIONS:
+        raise ValueError(f"unknown liturgical occasion: {value}")
+    return normalized
+
+
+def resolve_request_occasion(
+    method_occasion: Any,
+    payload_occasion: Any = None,
+    metadata_occasion: Any = None,
+) -> str:
+    """Resolve method/payload/metadata occasions to one canonical value.
+
+    Absent nested values inherit the canonical method occasion. Explicit values
+    must agree after alias normalization.
+    """
+    canonical = canonicalize_occasion(method_occasion)
+    for label, raw in (
+        ("payload", payload_occasion),
+        ("metadata", metadata_occasion),
+    ):
+        if raw is None or (isinstance(raw, str) and not raw.strip()):
+            continue
+        nested = canonicalize_occasion(raw)
+        if nested != canonical:
+            raise ValueError(
+                f"liturgical occasion conflict: method={canonical} {label}={nested}"
+            )
+    return canonical
+
+
+def _reading_text_missing(reading: Optional[dict]) -> bool:
+    return reading is not None and not (reading.get("text") or "").strip()
+
+
+def _references_match(selected: Optional[str], fetched: Optional[str]) -> bool:
+    if not selected or not fetched:
+        return False
+    return selected.strip() == fetched.strip()
+
+
+def _required_readings_complete(mapped: dict) -> bool:
+    for key in _REQUIRED_READING_KEYS:
+        reading = mapped.get(key)
+        if not reading or _reading_text_missing(reading):
+            return False
+    return True
 
 
 def _normalize_reading(reading: Any, reading_type: str) -> Optional[dict]:
@@ -137,29 +200,53 @@ def _map_liturgical_data(liturgical_data: dict) -> dict:
 
 
 async def _with_full_reading_texts(mapped: dict, occasion: str) -> dict:
-    """Recover reading texts and metadata from the liturgy agent when the model dropped them.
+    """Recover missing text for present readings without substituting selections.
 
-    The homily generator grounds its prompts in the actual reading texts, but models usually
-    keep only references when they echo readings into the homily tools. Readings are cached in
-    the liturgy agent (24h TTL), so this is a cheap in-network call.
+    Absent optional readings (e.g. weekday second reading) stay absent. Complete
+    selections are preserved. A fetched text fills a blank only when its reference
+    matches the selected reference.
     """
-    missing_text = [key for key, _ in _READING_KEYS if not (mapped.get(key) or {}).get("text")]
-    if not missing_text or not mapped.get("date"):
+    incomplete_keys = [
+        key for key, _ in _READING_KEYS if _reading_text_missing(mapped.get(key))
+    ]
+    if not incomplete_keys or not mapped.get("date"):
         return mapped
 
     try:
-        fresh = _map_liturgical_data(await request_liturgical_data(occasion, mapped["date"]))
+        fresh = _map_liturgical_data(
+            await request_liturgical_data(occasion, mapped["date"])
+        )
     except Exception as e:
         logger.warning(f"Could not re-fetch readings to fill missing texts: {e}")
         return mapped
 
-    for key, _ in _READING_KEYS:
-        reading = fresh.get(key)
-        if reading and reading.get("text"):
-            mapped[key] = reading
+    recovered: list[str] = []
+    for key in incomplete_keys:
+        selected = mapped.get(key) or {}
+        fetched = fresh.get(key)
+        if not fetched or not (fetched.get("text") or "").strip():
+            continue
+        if not _references_match(selected.get("reference"), fetched.get("reference")):
+            logger.warning(
+                "Refusing liturgical recovery for %s: selected=%r fetched=%r",
+                key,
+                selected.get("reference"),
+                fetched.get("reference"),
+            )
+            continue
+        filled = dict(selected)
+        filled["text"] = fetched["text"]
+        filled.setdefault("type", fetched.get("type"))
+        mapped[key] = filled
+        recovered.append(key)
+
     if not mapped.get("metadata") and fresh.get("metadata"):
         mapped["metadata"] = fresh["metadata"]
-    logger.info(f"Recovered reading texts from the liturgy agent for: {', '.join(missing_text)}")
+    if recovered:
+        logger.info(
+            "Recovered reading texts from the liturgy agent for: %s",
+            ", ".join(recovered),
+        )
     return mapped
 
 
@@ -494,11 +581,31 @@ async def request_homily_generation(
     from a2a_protocol import a2a_client
 
     config = _get_homily_transport_config()
+    mapped = _map_liturgical_data(liturgical_data or {})
+    try:
+        occasion = resolve_request_occasion(
+            occasion,
+            mapped.get("occasion"),
+            (mapped.get("metadata") or {}).get("occasion")
+            if isinstance(mapped.get("metadata"), dict)
+            else None,
+        )
+    except ValueError as e:
+        logger.error("Invalid liturgical occasion for homily generation: %s", e)
+        return {"error": str(e), "occasion": occasion}
+
     logger.info(f"Requesting homily generation: occasion={occasion}")
 
-    mapped = await _with_full_reading_texts(_map_liturgical_data(liturgical_data), occasion)
-    if not mapped.get("first_reading") or not mapped.get("gospel"):
-        logger.error("Incomplete liturgical data for homily generation", mapped=mapped)
+    mapped["occasion"] = occasion
+    if isinstance(mapped.get("metadata"), dict):
+        mapped["metadata"] = dict(mapped["metadata"])
+        mapped["metadata"]["occasion"] = occasion
+    mapped = await _with_full_reading_texts(mapped, occasion)
+    if not _required_readings_complete(mapped):
+        logger.error(
+            "Incomplete liturgical data for homily generation: keys=%s",
+            sorted(mapped.keys()),
+        )
         return {"error": "Dati liturgici incompleti. Richiedi prima le letture del giorno.", "occasion": occasion}
 
     async with a2a_client(**config) as client:
@@ -535,14 +642,31 @@ async def request_homily_refinement(
     from a2a_protocol import a2a_client
 
     config = _get_homily_transport_config()
-    logger.info(f"Requesting homily refinement: occasion={occasion}")
-
     if not liturgical_data:
         logger.error("Missing liturgical data for homily refinement")
         return {"error": "Dati liturgici incompleti. Richiedi prima le letture del giorno.", "occasion": occasion}
 
-    mapped = await _with_full_reading_texts(_map_liturgical_data(liturgical_data), occasion)
-    if not mapped.get("first_reading") or not mapped.get("gospel"):
+    mapped = _map_liturgical_data(liturgical_data)
+    try:
+        occasion = resolve_request_occasion(
+            occasion,
+            mapped.get("occasion"),
+            (mapped.get("metadata") or {}).get("occasion")
+            if isinstance(mapped.get("metadata"), dict)
+            else None,
+        )
+    except ValueError as e:
+        logger.error("Invalid liturgical occasion for homily refinement: %s", e)
+        return {"error": str(e), "occasion": occasion}
+
+    logger.info(f"Requesting homily refinement: occasion={occasion}")
+
+    mapped["occasion"] = occasion
+    if isinstance(mapped.get("metadata"), dict):
+        mapped["metadata"] = dict(mapped["metadata"])
+        mapped["metadata"]["occasion"] = occasion
+    mapped = await _with_full_reading_texts(mapped, occasion)
+    if not _required_readings_complete(mapped):
         logger.error("Incomplete liturgical data for homily refinement")
         return {"error": "Dati liturgici incompleti. Richiedi prima le letture del giorno.", "occasion": occasion}
 
