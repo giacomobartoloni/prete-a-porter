@@ -4,12 +4,19 @@ Regression guard for the live defect: Chainlit schedules step/message writes as
 independent tasks, and the bundled layer's fresh-session-per-statement pattern
 interleaved ``session.begin()`` calls on asyncpg until writes were dropped
 (persisted answers with empty output, missing tool steps).
+
+Also preserves the server-side password hash when Chainlit re-persists a
+sanitized session User after login.
 """
 
 import asyncio
 
+import chainlit as cl
+import pytest
 from chainlit.data.sql_alchemy import SQLAlchemyDataLayer
+from chainlit.user import PersistedUser
 
+from prete_chat import auth
 from prete_chat.data_layer import SerializedSQLAlchemyDataLayer, build
 
 
@@ -47,3 +54,54 @@ class TestStatementSerialization:
 
         asyncio.run(run())
         assert overlap["max"] == 1
+
+
+class TestCreateUserPreservesPasswordHash:
+    @pytest.mark.asyncio
+    async def test_sanitized_user_does_not_wipe_stored_password_hash(self, monkeypatch):
+        layer = SerializedSQLAlchemyDataLayer(
+            conninfo="postgresql+asyncpg://chainlit:pw@localhost:5432/chainlit"
+        )
+        stored_hash = auth.hash_password("segreta")
+        existing = PersistedUser(
+            id="00000000-0000-0000-0000-000000000001",
+            identifier="don@example.com",
+            createdAt="2026-09-18T00:00:00Z",
+            metadata={
+                auth.NAME_METADATA_KEY: "Don Mario",
+                auth.PASSWORD_METADATA_KEY: stored_hash,
+            },
+        )
+        persisted: list[cl.User] = []
+
+        async def fake_get_user(self, identifier: str):
+            assert identifier == "don@example.com"
+            return existing
+
+        async def fake_create_user(self, user: cl.User):
+            persisted.append(user)
+            return PersistedUser(
+                id=existing.id,
+                identifier=user.identifier,
+                createdAt=existing.createdAt,
+                metadata=dict(user.metadata or {}),
+            )
+
+        monkeypatch.setattr(SQLAlchemyDataLayer, "get_user", fake_get_user)
+        monkeypatch.setattr(SQLAlchemyDataLayer, "create_user", fake_create_user)
+
+        sanitized = cl.User(
+            identifier="don@example.com",
+            display_name="Don Mario",
+            metadata={auth.NAME_METADATA_KEY: "Don Mario"},
+        )
+        assert auth.PASSWORD_METADATA_KEY not in sanitized.metadata
+
+        result = await layer.create_user(sanitized)
+
+        assert auth.PASSWORD_METADATA_KEY not in sanitized.metadata
+        assert len(persisted) == 1
+        assert persisted[0].metadata[auth.PASSWORD_METADATA_KEY] == stored_hash
+        assert persisted[0].metadata[auth.NAME_METADATA_KEY] == "Don Mario"
+        assert result.metadata[auth.PASSWORD_METADATA_KEY] == stored_hash
+        await layer.close()

@@ -48,7 +48,7 @@ class TestNormalizeIdentifier:
 
 class TestPasswordAuth:
     @pytest.mark.asyncio
-    async def test_valid_credentials_return_the_user_with_its_metadata(self, monkeypatch):
+    async def test_valid_credentials_return_the_user_without_the_password_hash(self, monkeypatch):
         monkeypatch.setattr(auth, "get_data_layer", lambda: _FakeLayer(_persisted()))
 
         user = await auth.password_auth("Don@Example.com", "segreta")
@@ -56,8 +56,21 @@ class TestPasswordAuth:
         assert user is not None
         assert user.identifier == "don@example.com"
         assert user.display_name == "Don Mario"
-        # Chainlit writes this metadata back on every login: the hash must survive.
-        assert auth.verify_password("segreta", user.metadata[auth.PASSWORD_METADATA_KEY]) is True
+        assert auth.PASSWORD_METADATA_KEY not in user.metadata
+        assert user.metadata[auth.NAME_METADATA_KEY] == "Don Mario"
+
+    @pytest.mark.asyncio
+    async def test_password_auth_never_returns_password_hash_in_user_metadata(self, monkeypatch):
+        """Security: the JWT/session User must never carry the bcrypt hash."""
+        monkeypatch.setattr(auth, "get_data_layer", lambda: _FakeLayer(_persisted()))
+
+        user = await auth.password_auth("don@example.com", "segreta")
+
+        assert user is not None
+        assert auth.PASSWORD_METADATA_KEY not in (user.metadata or {})
+        serialized = str(user.metadata)
+        assert "$2" not in serialized
+        assert "password_hash" not in serialized
 
     @pytest.mark.asyncio
     async def test_identifier_is_normalised_before_the_lookup(self, monkeypatch):

@@ -1,8 +1,9 @@
 """Password authentication owned by this shell (plan §17).
 
 Accounts are operator-provisioned (``scripts/create_user.py``); Chainlit has no
-stock signup. The Chainlit user record carries a bcrypt hash in its metadata,
-with the same cost the legacy frontend used (10), so hashes stay portable.
+stock signup. The bcrypt hash lives in the persisted user metadata (cost 10,
+matching the legacy frontend) but is never returned on the session ``User`` —
+see ``data_layer.SerializedSQLAlchemyDataLayer.create_user``.
 
 The core has no user entity: the identifier is used for the per-user quota and
 the boundary log line, nothing else.
@@ -39,9 +40,12 @@ async def password_auth(username: str, password: str) -> cl.User | None:
     """Chainlit password callback: verify against the persisted bcrypt hash.
 
     Returns ``None`` for every failure (unknown user, wrong password, no data
-    layer) so the login page cannot be used to enumerate accounts. The returned
-    metadata is written back by Chainlit on each login, so it must carry the
-    hash and the display name: dropping either would corrupt the account.
+    layer) so the login page cannot be used to enumerate accounts.
+
+    The returned ``User`` is what Chainlit puts in the session JWT and exposes
+    via ``/user``, so it must never carry ``password_hash``. The custom data
+    layer re-injects the hash only on the persistence path when Chainlit calls
+    ``create_user`` after a successful login.
     """
     layer = get_data_layer()
     if layer is None:
@@ -54,8 +58,11 @@ async def password_auth(username: str, password: str) -> cl.User | None:
     if not isinstance(stored, str) or not verify_password(password, stored):
         return None
     name = metadata.get(NAME_METADATA_KEY)
+    client_metadata: dict[str, str] = {}
+    if isinstance(name, str):
+        client_metadata[NAME_METADATA_KEY] = name
     return cl.User(
         identifier=persisted.identifier,
         display_name=name or persisted.identifier,
-        metadata={PASSWORD_METADATA_KEY: stored, NAME_METADATA_KEY: name},
+        metadata=client_metadata,
     )
