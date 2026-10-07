@@ -92,7 +92,7 @@ keeps its own users and conversation history in its own PostgreSQL database
 | PostgreSQL (frontend) + SQLite (agents) | Prisma ORM + local agent caching | Schema must be relational for frontend |
 | HTTP-only transport | Microservices deployment | No stdio/gRPC transport implemented |
 | Basic Auth for A2A | Inter-agent security | Credentials shared via A2A_BASIC_AUTH env vars |
-| Client shells are replaceable | Avoid UI lock-in and duplicated product work | Shells consume only the OpenAI-compatible `/v1/*` API; no shell code imports orchestrator internals |
+| Client shells are replaceable | Avoid UI lock-in and duplicated product work | OpenAI-compatible shells consume `/v1/*`; the native Chainlit adapter is the intentional exception and imports the transport-independent application seam in-process |
 
 ---
 
@@ -473,10 +473,14 @@ class GeneratedHomily:
 
 ### 8.1 Homily Preparation (Primary Flow)
 
+> Sequence below shows the legacy Next.js / WebSocket path. OpenWebUI and
+> LibreChat reach the same orchestrator tools via `/v1`; Chainlit uses the
+> in-process application seam.
+
 ```mermaid
 sequenceDiagram
     actor User
-    participant UI as Next.js Frontend
+    participant UI as Legacy Next.js Frontend
     participant WS as Chat Orchestrator
     participant LA as Liturgy Agent
     participant HA as Homily Agent
