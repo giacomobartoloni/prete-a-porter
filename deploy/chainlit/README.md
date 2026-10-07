@@ -1,8 +1,8 @@
 # Chainlit native UI — deployment and operations
 
 Additive Compose overlay for the native Prête-à-Porter UI (`packages/prete-chat`).
-The base stack (orchestrator, agents, OpenWebUI, LibreChat, legacy frontend) is
-not modified.
+The base stack (orchestrator, agents, OpenWebUI and the legacy frontend) is not
+modified. The LibreChat overlay, when enabled separately, is also unaffected.
 
 ```bash
 # Development / evaluation (from the repository root)
@@ -37,6 +37,16 @@ registration form, no registration route and no flag to enable (its login page
 offers email + password and the configured OAuth providers, nothing else), so
 `scripts/create_user.py` is the only account-creation path. It stores a bcrypt
 hash in the Chainlit user metadata.
+
+The bcrypt verifier is persisted server-side in the Chainlit user metadata, but
+it is never exposed by the public data-layer read. `get_user()` sanitizes
+`password_hash`; authentication uses `get_user_for_auth()` to access the raw
+credential metadata. Chainlit reloads the persisted user when resolving `/user`,
+which is why the public `get_user()` path must remain sanitized.
+
+The `Prete-chat Postgres Auth` workflow verifies that `/user` never contains the
+bcrypt hash while the verifier remains available server-side and a subsequent
+login still succeeds.
 
 Create or update an account (stack running, from the repository root):
 

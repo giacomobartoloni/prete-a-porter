@@ -55,7 +55,10 @@ orchestrator core stays stateless: only user/assistant text is reconstructed as
 model context on resume; tool steps, notices and the welcome message never are.
 
 Accounts are operator-provisioned (Chainlit has no stock signup), with bcrypt
-hashes (cost 10) in the Chainlit user metadata:
+hashes (cost 10) in the Chainlit user metadata. These hashes are
+persistence-only credential metadata. Session-visible reads are sanitized by
+`SerializedSQLAlchemyDataLayer.get_user()`; password verification uses
+`get_user_for_auth()`.
 
 ```bash
 uv run python scripts/create_user.py --email don@example.com --name "Don Mario"
