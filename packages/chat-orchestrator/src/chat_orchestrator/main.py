@@ -4,7 +4,6 @@ Chat Orchestrator — WebSocket server for agent coordination.
 Coordinates liturgy-agent and homily-agent via A2A protocol.
 """
 
-import asyncio
 import logging
 import os
 import time
@@ -12,13 +11,13 @@ from collections import defaultdict
 from contextlib import asynccontextmanager
 
 import uvicorn
-from fastapi import FastAPI, Request, Response
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 
-from .cleanup import cleanup_old_checkpoints
+from .api.v1 import router as openai_router
 from .error_handlers import register_exception_handlers
 from .graph import get_graph
 from .routes import chat_websocket, correlation_id_middleware, health
@@ -28,26 +27,9 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Application lifespan: start cleanup task on startup, cancel on shutdown."""
-    graph = await get_graph()
-    cleanup_task = asyncio.create_task(_periodic_cleanup(graph))
+    """Application lifespan: build the graph on startup."""
+    await get_graph()
     yield
-    cleanup_task.cancel()
-    try:
-        await cleanup_task
-    except asyncio.CancelledError:
-        pass
-
-
-async def _periodic_cleanup(graph):
-    """Run cleanup every 24 hours."""
-    interval = int(os.getenv("CHECKPOINT_CLEANUP_INTERVAL", "86400"))
-    while True:
-        await asyncio.sleep(interval)
-        try:
-            await cleanup_old_checkpoints(graph)
-        except Exception as e:
-            logger.error("Periodic cleanup failed", error=str(e))
 
 
 limiter = Limiter(key_func=get_remote_address)
@@ -66,6 +48,8 @@ app.add_middleware(
 )
 
 app.middleware("http")(correlation_id_middleware)
+
+app.include_router(openai_router)
 
 # Rate limit health endpoint
 @app.get("/health")
@@ -95,17 +79,6 @@ def check_ws_rate_limit(websocket) -> bool:
     return True
 
 app.websocket("/ws/chat/{session_id}")(chat_websocket)
-
-
-@app.delete("/checkpoints/{session_id}")
-async def delete_checkpoint(session_id: str):
-    """Delete a checkpoint by session ID (fire-and-forget from frontend)."""
-    try:
-        graph = await get_graph()
-        await graph.checkpointer.adelete_thread(session_id)
-    except Exception:
-        pass
-    return Response(status_code=204)
 
 
 def start() -> None:

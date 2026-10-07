@@ -23,9 +23,13 @@ This project started as a way to force a conversation about architecture instead
 ## Architecture
 
 ```
-User ←→ Frontend (Next.js, port 3000)
-            │ WebSocket (JWT)
-            ↓
+   OpenWebUI (3001)              Next.js chat (3000)
+        │                              │
+        │ OpenAI-compatible HTTP, SSE  │ WebSocket (JWT)
+        │ Bearer ORCHESTRATOR_API_KEY  │
+        ╲                              ╱
+         ╲                            ╱
+          ↓                          ↓
          Chat Orchestrator (FastAPI, port 8000)
             │ A2A JSON-RPC 2.0 over HTTP (Basic Auth)
            ╱                      ╲
@@ -33,6 +37,10 @@ User ←→ Frontend (Next.js, port 3000)
    Liturgy Agent (8001)    Homily Agent (8002)
    SQLite cache, scrapers   ChromaDB + sentence-transformers
 ```
+
+Both frontends are live while the OpenWebUI migration is verified. The orchestrator is
+**stateless**: every request carries its own message history and no checkpointer
+exists.
 
 ## Prerequisites
 
@@ -47,66 +55,122 @@ cd preteaporter
 
 # 2. Copy environment template and configure
 cp .env.example .env
-# Edit .env: set at least one LLM API key and WS_JWT_SECRET
 
-# 3. Create persistent data directory
+# 3. Create the persistent data directory
 mkdir -p data
 
-# 4. Start all services
-docker compose up --build
+# 4. Start everything
+docker compose up -d --build
 
-# Or run in background
-docker compose up --build -d
+# 5. Wait until the orchestrator reports healthy
+until curl -sf localhost:8000/health > /dev/null; do sleep 2; done; echo ready
 ```
 
-Wait ~30s for all services to become healthy.
+Then open **http://localhost:3001** (OpenWebUI) or **http://localhost:3000**
+(the Next.js chat). Both are live during the transition; see *Interfaces* below.
 
-## Usage
+### Required in `.env`
 
-1. Open **http://localhost:3000** in your browser
-2. Register a new account (email + password)
-3. Log in to access the chat interface
-4. Type a message like *"I need a homily for next Sunday"*
-   — the system fetches the readings and offers to generate a homily
-5. Ask *"Generate a homily"* to produce a full 4-section homily
+| Variable | Why |
+|---|---|
+| one of `ANTHROPIC_API_KEY`, `GOOGLE_API_KEY`, `OPENAI_API_KEY` | The agents cannot answer without a model. The factory picks the first one set, in that order. |
+| `OPENAI_BASE_URL`, `OPENAI_MODEL_NAME` | Only when using `OPENAI_API_KEY`, including OpenAI-compatible providers. The model name must exist in that provider's catalogue. |
+| `WS_JWT_SECRET` | WebSocket ticket signing. The orchestrator refuses to start without it. |
+| `AUTH_SECRET` | NextAuth session signing, for the Next.js frontend. |
+| `ORCHESTRATOR_API_KEY` | Bearer key for `/v1/*`. Every request fails with 500 if unset. |
+| `WEBUI_SECRET_KEY` | OpenWebUI session signing. |
+| `A2A_BASIC_AUTH_USERNAME` / `_PASSWORD` | Inter-agent HTTP Basic Auth. |
+
+Generate the three secrets with:
+
+```bash
+openssl rand -hex 32   # WS_JWT_SECRET, ORCHESTRATOR_API_KEY, WEBUI_SECRET_KEY
+openssl rand -hex 32   # AUTH_SECRET
+```
+
+`.env.example` carries safe placeholders for all of them. Note that
+`ORCHESTRATOR_API_KEY` must **not** be named `OPENAI_API_KEY`: that name is the
+upstream provider key, and reusing it breaks provider selection.
+
+### Verify the stack
+
+```bash
+curl -s localhost:8000/health                                   # {"status":"ok",...}
+curl -s -o /dev/null -w '%{http_code}\n' localhost:8000/v1/models   # 401, as expected
+KEY=$(awk -F= '/^ORCHESTRATOR_API_KEY=/{print $2}' .env)
+curl -s -H "Authorization: Bearer $KEY" localhost:8000/v1/models    # the model card
+```
+
+If a chat request returns `500`, the message is deliberate and Italian. The cause is
+in the orchestrator's logs:
+
+```bash
+docker compose logs chat-orchestrator --tail=40 | grep -iE "error|exception"
+```
+
+The most common one is a provider-side failure — an expired key, a suspended billing
+account, or a model name absent from the catalogue. `GET {OPENAI_BASE_URL}/models`
+with the same key distinguishes them.
+
+### Stopping
+
+```bash
+docker compose down          # keep volumes
+docker compose down -v       # also drop OpenWebUI's data and the frontend DB
+```
+
+## Interfaces
+
+Two chat frontends run side by side while the OpenWebUI migration is being verified.
+
+| Interface | URL | Transport to the orchestrator | Auth |
+|---|---|---|---|
+| OpenWebUI | **http://localhost:3001** | `POST /v1/chat/completions` (OpenAI-compatible, SSE) | Bearer `ORCHESTRATOR_API_KEY` |
+| Next.js chat | **http://localhost:3000** | `WS /ws/chat/{session_id}` | NextAuth + a 30 s `ws_ticket` JWT |
+
+OpenWebUI listens on **3001, not 3000**, because the Next.js frontend still owns 3000.
+When the cutover removes that service, change the `openwebui` ports entry to
+`"3000:8080"` in `docker-compose.yml`; nothing else depends on the number.
+
+OpenWebUI needs one manual step on first run: create the admin account, then select the
+`prete-a-porter` model. The connection itself is preconfigured.
 
 ## Services
 
 | Service | Port | Description | Dockerfile |
-|---------|------|-------------|------------|
-| frontend | 3000 | Next.js 14 chat UI | `frontend/Dockerfile` |
-| chat-orchestrator | 8000 | WebSocket server, A2A coordinator | `packages/chat-orchestrator/Dockerfile` |
+|---|---|---|---|
+| openwebui | 127.0.0.1:3001 → 8080 | OpenWebUI chat UI | `ghcr.io/open-webui/open-webui:v0.11.4` |
+| frontend | 3000 | Next.js 14 chat UI (transitional) | `frontend/Dockerfile` |
+| chat-orchestrator | 8000 | WebSocket + OpenAI-compatible API, A2A coordinator | `packages/chat-orchestrator/Dockerfile` |
 | liturgy-agent | 8001 | Liturgical data retrieval | `packages/liturgy-agent/Dockerfile` |
 | homily-agent | 8002 | Homily generation (RAG) | `packages/homily-agent/Dockerfile` |
-| a2a-inspector | 8080 | A2A debug tool (requires separate image build) | External |
+| caddy | 80, 443 | TLS reverse proxy (production) | `caddy:2-alpine` |
+| a2a-inspector | 8080 | A2A debug tool (requires a separate image build) | External |
 
 ## Environment Variables
 
-Copy `.env.example` to `.env` and configure:
+See **Required in `.env`** above for the mandatory set, and [`.env.example`](.env.example)
+for the complete template with provider examples.
 
-| Variable | Required | Purpose |
-|----------|----------|---------|
-| `ANTHROPIC_API_KEY` | Note 1 | Claude provider |
-| `GOOGLE_API_KEY` | Note 1 | Gemini provider |
-| `OPENAI_API_KEY` | Note 1 | OpenAI / compatible (Fireworks, Groq, Ollama) |
-| `WS_JWT_SECRET` | **Yes** | WebSocket JWT signing (frontend + orchestrator) |
-| `AUTH_SECRET` | **Yes** | NextAuth session signing |
-| `A2A_BASIC_AUTH_USERNAME` | **Yes** | Inter-agent HTTP Basic Auth |
-| `A2A_BASIC_AUTH_PASSWORD` | **Yes** | Inter-agent HTTP Basic Auth |
+The LLM provider is selected by the **first** key found, in this order:
 
-> **Note 1**: Set exactly **one** LLM API key. Provider is selected by priority:
-> `ANTHROPIC_API_KEY` → `GOOGLE_API_KEY` → `OPENAI_API_KEY`.
-> See `.env.example` for compatible providers and model names.
+```
+ANTHROPIC_API_KEY -> GOOGLE_API_KEY -> OPENAI_API_KEY
+```
+
+Set exactly **one**. OpenAI-compatible providers (Fireworks, Groq, Together, Ollama,
+vLLM) all use `OPENAI_API_KEY` plus `OPENAI_BASE_URL` and `OPENAI_MODEL_NAME`.
 
 ## Health Checks
 
-All services expose `GET /health`:
+All services expose `GET /health`, except the Next.js frontend, which has no such route:
 
 ```bash
-curl http://localhost:3000/api/health   # frontend
 curl http://localhost:8000/health       # chat-orchestrator
-curl http://localhost:8001/health       # liturgy-agent
-curl http://localhost:8002/health       # homily-agent
+curl http://localhost:8001/health       # liturgy-agent (exempt from Basic Auth)
+curl http://localhost:8002/health       # homily-agent (exempt from Basic Auth)
+curl http://localhost:3001/health       # openwebui
+curl -o /dev/null -w '%{http_code}\n' http://localhost:3000/api/config   # frontend: 200
 ```
 
 ## RAG Knowledge Base

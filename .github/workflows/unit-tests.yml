@@ -13,7 +13,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        package: [a2a-protocol, chat-orchestrator, liturgy-agent, homily-agent]
+        package: [a2a-protocol, chat-orchestrator, liturgy-agent, homily-agent, prete-chat]
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4

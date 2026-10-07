@@ -1,0 +1,44 @@
+# Prête-à-Porter — Chainlit configuration.
+#
+# Only deviations from the Chainlit 2.12.0 defaults are written here; every
+# other key keeps its stock value. `cot = "tool_call"` is load-bearing: the UI
+# shows tool steps, never raw model reasoning or chain internals.
+
+[features]
+# The homily workflow never needs HTML or LaTeX rendering; both are XSS/bleed
+# risks with model output.
+unsafe_allow_html = false
+latex = false
+user_message_markdown = true
+
+# The legacy UI had no file upload and the core accepts text only.
+[features.spontaneous_file_upload]
+    enabled = false
+
+[UI]
+name = "Prête-à-Porter"
+description = "Assistente per la preparazione delle omelie e per i dati liturgici."
+language = "it"
+cot = "tool_call"
+confirm_new_chat = true
+# Brand mark: the same asset the legacy frontend ships (frontend/public/logo.png),
+# installed as public/logo_{light,dark}.png. Both marks point at the static file
+# rather than at Chainlit's /logo route: that route answers with plain
+# last-modified/etag, and browsers kept serving a superseded artwork from their
+# cache long after a deploy — seen live on 2026-09-22, where the mark reported as
+# missing was a stale response. public/ is cache-busted by URL instead, exactly
+# like custom.css below. Theme awareness is moot while the two variants are
+# byte-identical; an approved reversed dark artwork means restoring
+# logo_file_url = "/logo" (theme-aware, at the cost of that staleness) or
+# versioning a second file. The favicon route still picks up public/favicon.*.
+logo_file_url = "/public/logo_light.png?v=1"
+default_avatar_file_url = "/public/logo_light.png?v=1"
+# The `?v=` suffix is a cache-buster: Chainlit serves public/ statically with a
+# long-lived cache entry, so a browser keeps the old stylesheet after a deploy.
+# Bump the number whenever custom.css changes.
+custom_css = "/public/custom.css?v=9"
+
+[meta]
+# Chainlit refuses any config file whose marker is <= 0.3.0; keep this in step
+# with the pinned chainlit version in pyproject.toml.
+generated_by = "2.12.0"

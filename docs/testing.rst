@@ -2,6 +2,17 @@
 Testing
 =======
 
+.. warning::
+
+   This document describes an **intended** strategy and is partly aspirational. It
+   names tooling that is not installed in this repository — Cypress, Jest,
+   ``freezegun``, ``pytest-timeout``, a shared ``conftest.py`` — and the frontend
+   uses Playwright, not Cypress. The coverage targets below are not enforced by any
+   gate.
+
+   For what was actually executed, level by level, see
+   ``docs/verification-levels.md``.
+
 Comprehensive testing strategy and infrastructure.
 
 Overview

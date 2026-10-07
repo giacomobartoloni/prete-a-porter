@@ -1,16 +1,45 @@
 # Prete-a-porter — Caddy reverse proxy
 # TLS automatico via Let's Encrypt per chat.prete-a-porter.dev
-# /ws/* → chat-orchestrator (WebSocket)
-# /*   → frontend (Next.js)
+# /ws/* → chat-orchestrator (WebSocket, transitional)
+# /*    → openwebui
 
 chat.prete-a-porter.dev {
-	# WebSocket → chat-orchestrator
+	# WebSocket → chat-orchestrator (removed once the WS path is retired)
 	handle /ws/* {
 		reverse_proxy chat-orchestrator:8000
 	}
 
-	# Everything else → Next.js frontend
+	# Everything else → OpenWebUI
 	handle {
-		reverse_proxy frontend:3000
+		reverse_proxy openwebui:8080
 	}
 }
+
+# LibreChat — migration candidate, not routed yet.
+#
+# Activate only once librechat.prete-a-porter.dev resolves to this host: Caddy
+# requests a Let's Encrypt certificate for every name it serves, and a name
+# without a DNS record fails validation and spends the ACME failure budget.
+# Until then, reach LibreChat at http://localhost:3002 on the server (or over an
+# SSH tunnel). While active, both UIs answer side by side: OpenWebUI on
+# chat.prete-a-porter.dev, LibreChat on librechat.prete-a-porter.dev.
+#
+# librechat.prete-a-porter.dev {
+# 	handle {
+# 		reverse_proxy librechat:3080
+# 	}
+# }
+
+# Chainlit native UI (prete-chat) — evaluation host, not routed yet.
+#
+# Same DNS rule as LibreChat: activate only once app.prete-a-porter.dev resolves
+# to this host. Websockets (socket.io) are proxied natively by reverse_proxy —
+# no buffering flags and no subpath/root-path handling are needed. Evaluation
+# keeps chat.prete-a-porter.dev on OpenWebUI; whether the native UI takes that
+# name later is an owner decision (plan §29).
+#
+# app.prete-a-porter.dev {
+# 	handle {
+# 		reverse_proxy prete-chat:8000
+# 	}
+# }

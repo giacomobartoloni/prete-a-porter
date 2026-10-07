@@ -1,4 +1,5 @@
 """Sliding-window rate limiter using SQLite."""
+import asyncio
 import os
 import time
 from dataclasses import dataclass
@@ -26,6 +27,7 @@ class RateLimiter:
         self.per_hour = per_hour
         self.per_day = per_day
         self._insert_count = 0
+        self._lock = asyncio.Lock()
 
     @classmethod
     async def create(
@@ -62,6 +64,10 @@ class RateLimiter:
             await self._conn.close()
 
     async def check_and_increment(self, user_id: str) -> RateLimitResult:
+        async with self._lock:
+            return await self._check_and_increment_unlocked(user_id)
+
+    async def _check_and_increment_unlocked(self, user_id: str) -> RateLimitResult:
         now = time.time()
         hour_ago = now - 3600
         day_ago = now - 86400
@@ -115,3 +121,22 @@ class RateLimiter:
             "hour": RateLimitInfo(limit=self.per_hour, remaining=hour_remaining - 1, reset_at=None),
             "day": RateLimitInfo(limit=self.per_day, remaining=day_remaining - 1, reset_at=None),
         })
+
+
+_rate_limiter: "RateLimiter | None" = None
+_rate_limiter_init_lock = asyncio.Lock()
+
+
+async def get_rate_limiter() -> "RateLimiter":
+    """Return the process-wide rate limiter, creating it on first use.
+
+    Every caller must share this singleton; a per-request limiter would reset
+    the sliding window on each call. Double-checked locking keeps concurrent
+    first-access callers from creating two instances.
+    """
+    global _rate_limiter
+    if _rate_limiter is None:
+        async with _rate_limiter_init_lock:
+            if _rate_limiter is None:
+                _rate_limiter = await RateLimiter.create()
+    return _rate_limiter
