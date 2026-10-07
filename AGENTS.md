@@ -21,7 +21,7 @@ over HTTP JSON-RPC 2.0.
 ```
 ┌──────────────────────────────────────────────────────────────┐
 │                     CLIENT SHELLS (replaceable)               │
-│   LibreChat (v0.8.7)  │  OpenWebUI (v0.11.3)  │  Next.js 14  │
+│   LibreChat (v0.8.7)  │  OpenWebUI (v0.11.4)  │  Next.js 14  │
 │   deploy/librechat/   │  docker-compose       │  transitional│
 └──────┬────────────────┬────────────────┬────────────────────┘
        │                │                │
@@ -73,7 +73,7 @@ keeps its own users and conversation history in its own PostgreSQL database
 |-------|-----------|----------|-------------|
 | Frontend | Next.js 14 (App Router), React 18, TypeScript, Tailwind CSS | `frontend/` | 20+ TSX files |
 | Chat Orchestrator | FastAPI, LangGraph | `packages/chat-orchestrator/` | 11 Python + 2 utils |
-| Chat Shells | LibreChat v0.8.7 (`deploy/librechat/`), OpenWebUI v0.11.3, Next.js 14 (transitional) | `deploy/`, `docker-compose.yml`, `frontend/` | — |
+| Chat Shells | LibreChat v0.8.7 (`deploy/librechat/`), OpenWebUI v0.11.4, Next.js 14 (transitional) | `deploy/`, `docker-compose.yml`, `frontend/` | — |
 | Native UI | Chainlit 2.12.0 + SQLAlchemy/PostgreSQL data layer | `packages/prete-chat/` | 12 Python |
 | Liturgy Agent | LangGraph, BeautifulSoup, SQLite | `packages/liturgy-agent/` | 7 Python + 3 JSON lectionaries |
 | Homily Agent | LangGraph, ChromaDB, sentence-transformers | `packages/homily-agent/` | 7 Python + 4 RAG |

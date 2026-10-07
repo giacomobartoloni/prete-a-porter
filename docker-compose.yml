@@ -184,15 +184,15 @@ services:
 
   # OpenWebUI — chat frontend for the chat-orchestrator's OpenAI-compatible API
   openwebui:
-    # v0.11.3 is the first minor release line that reads DEFAULT_INTERFACE_SETTINGS;
-    # v0.10.2 silently ignored it. Bumping past this tag requires re-checking the
-    # keys below against the release notes.
-    image: ghcr.io/open-webui/open-webui:v0.11.3
+    # v0.11.x is the first minor release line that reads DEFAULT_INTERFACE_SETTINGS;
+    # v0.10.2 silently ignored it. Pin the latest 0.11 patch (security/access-control
+    # fixes in v0.11.4); bumping past 0.11 requires re-checking the keys below.
+    image: ghcr.io/open-webui/open-webui:v0.11.4
     container_name: openwebui
     ports:
-      # Host port 3001 while the Next.js frontend still owns 3000. After the
-      # cutover removes the frontend service, move this to "3000:8080".
-      - "3001:8080"
+      # Loopback only: public traffic goes through Caddy. Host port 3001 while
+      # the Next.js frontend still owns 3000; after cutover, move to 127.0.0.1:3000.
+      - "127.0.0.1:3001:8080"
     environment:
       - OPENAI_API_BASE_URL=http://chat-orchestrator:8000/v1
       - OPENAI_API_KEY=${ORCHESTRATOR_API_KEY}

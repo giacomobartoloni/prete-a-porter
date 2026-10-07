@@ -139,7 +139,7 @@ OpenWebUI needs one manual step on first run: create the admin account, then sel
 
 | Service | Port | Description | Dockerfile |
 |---|---|---|---|
-| openwebui | 3001 → 8080 | OpenWebUI chat UI | `ghcr.io/open-webui/open-webui:v0.11.3` |
+| openwebui | 127.0.0.1:3001 → 8080 | OpenWebUI chat UI | `ghcr.io/open-webui/open-webui:v0.11.4` |
 | frontend | 3000 | Next.js 14 chat UI (transitional) | `frontend/Dockerfile` |
 | chat-orchestrator | 8000 | WebSocket + OpenAI-compatible API, A2A coordinator | `packages/chat-orchestrator/Dockerfile` |
 | liturgy-agent | 8001 | Liturgical data retrieval | `packages/liturgy-agent/Dockerfile` |
