@@ -6,11 +6,17 @@ or delete the shared Docker Compose stack; start the test services explicitly
 before running live/E2E layers.
 """
 
+import base64
 import os
 
 import pytest
 
 PROJECT_ROOT = os.path.normpath(os.path.join(os.path.dirname(__file__), "../.."))
+
+# Disposable credentials for required A2A HTTP auth in tests/CI.
+# Never overwrite operator-provided values from the environment or .env.
+DISPOSABLE_A2A_USERNAME = "a2a-test"
+DISPOSABLE_A2A_PASSWORD = "a2a-test-secret"
 
 
 def _load_env():
@@ -32,7 +38,47 @@ def _load_env():
                 os.environ[key] = value
 
 
+def _ensure_complete_a2a_test_credentials() -> None:
+    user = (os.environ.get("A2A_BASIC_AUTH_USERNAME") or "").strip()
+    password = (os.environ.get("A2A_BASIC_AUTH_PASSWORD") or "").strip()
+    if user and password:
+        return
+    if user or password:
+        # Leave partial pairs alone so fail-closed server/client behaviour surfaces.
+        return
+    os.environ["A2A_BASIC_AUTH_USERNAME"] = DISPOSABLE_A2A_USERNAME
+    os.environ["A2A_BASIC_AUTH_PASSWORD"] = DISPOSABLE_A2A_PASSWORD
+
+
 _load_env()
+_ensure_complete_a2a_test_credentials()
+
+
+def a2a_auth_headers() -> dict[str, str]:
+    """HTTP Basic Auth headers matching the required A2A credential pair."""
+    user = (os.environ.get("A2A_BASIC_AUTH_USERNAME") or "").strip()
+    password = (os.environ.get("A2A_BASIC_AUTH_PASSWORD") or "").strip()
+    if not user or not password:
+        return {}
+    token = base64.b64encode(f"{user}:{password}".encode()).decode()
+    return {"Authorization": f"Basic {token}"}
+
+
+def a2a_post(url: str, **kwargs):
+    """POST with required A2A Basic Auth headers."""
+    import httpx
+
+    headers = {**a2a_auth_headers(), **kwargs.pop("headers", {})}
+    return httpx.post(url, headers=headers, **kwargs)
+
+
+async def a2a_apost(url: str, **kwargs):
+    """Async POST with required A2A Basic Auth headers."""
+    import httpx
+
+    headers = {**a2a_auth_headers(), **kwargs.pop("headers", {})}
+    async with httpx.AsyncClient(timeout=kwargs.pop("timeout", 15.0)) as client:
+        return await client.post(url, headers=headers, **kwargs)
 
 
 def pytest_addoption(parser):

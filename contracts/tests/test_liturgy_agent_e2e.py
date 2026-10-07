@@ -2,14 +2,15 @@
 End-to-end tests for the Liturgy Agent A2A protocol.
 """
 
-import httpx
 import pytest
+
+from conftest import a2a_post
 
 
 class TestLiturgyAgentPing:
     def test_ping(self, liturgy_url):
         """agent.ping returns pong with version."""
-        resp = httpx.post(liturgy_url + "/", json={
+        resp = a2a_post(liturgy_url + "/", json={
             "jsonrpc": "2.0", "id": "1", "method": "agent.ping", "params": {},
         })
         assert resp.status_code == 200
@@ -22,7 +23,7 @@ class TestLiturgyAgentPing:
 class TestLiturgyAgentGetReadings:
     def test_get_readings_mass(self, liturgy_url):
         """get_readings with occasion=mass returns structured readings."""
-        resp = httpx.post(liturgy_url + "/", json={
+        resp = a2a_post(liturgy_url + "/", json={
             "jsonrpc": "2.0", "id": "2", "method": "liturgy_agent.get_readings",
             "params": {"occasion": "mass"},
         })
@@ -39,7 +40,7 @@ class TestLiturgyAgentGetReadings:
 
     def test_get_readings_specific_date(self, liturgy_url):
         """get_readings with YYYY-MM-DD date returns readings for that date."""
-        resp = httpx.post(liturgy_url + "/", json={
+        resp = a2a_post(liturgy_url + "/", json={
             "jsonrpc": "2.0", "id": "3", "method": "liturgy_agent.get_readings",
             "params": {"occasion": "mass", "date": "2026-04-05"},
         })
@@ -50,7 +51,7 @@ class TestLiturgyAgentGetReadings:
 
     def test_get_readings_unknown_occasion(self, liturgy_url):
         """get_readings with invalid occasion returns JSON-RPC error."""
-        resp = httpx.post(liturgy_url + "/", json={
+        resp = a2a_post(liturgy_url + "/", json={
             "jsonrpc": "2.0", "id": "4", "method": "liturgy_agent.get_readings",
             "params": {"occasion": "invalid_occasion"},
         })
@@ -59,7 +60,7 @@ class TestLiturgyAgentGetReadings:
 
     def test_get_readings_missing_occasion(self, liturgy_url):
         """get_readings without required occasion returns error."""
-        resp = httpx.post(liturgy_url + "/", json={
+        resp = a2a_post(liturgy_url + "/", json={
             "jsonrpc": "2.0", "id": "5", "method": "liturgy_agent.get_readings",
             "params": {},
         })
@@ -68,7 +69,7 @@ class TestLiturgyAgentGetReadings:
 
     def test_get_readings_invalid_date(self, liturgy_url):
         """get_readings with non-ISO date returns error."""
-        resp = httpx.post(liturgy_url + "/", json={
+        resp = a2a_post(liturgy_url + "/", json={
             "jsonrpc": "2.0", "id": "6", "method": "liturgy_agent.get_readings",
             "params": {"occasion": "mass", "date": "not-a-date"},
         })
@@ -80,7 +81,7 @@ class TestLiturgyAgentGetLectionary:
     @pytest.mark.parametrize("occasion", ["marriage", "baptism", "funeral"])
     def test_get_lectionary(self, liturgy_url, occasion):
         """get_lectionary returns readings for each special occasion."""
-        resp = httpx.post(liturgy_url + "/", json={
+        resp = a2a_post(liturgy_url + "/", json={
             "jsonrpc": "2.0", "id": "7", "method": "liturgy_agent.get_lectionary",
             "params": {"occasion": occasion},
         })
@@ -98,10 +99,10 @@ class TestLiturgyAgentCache:
             "jsonrpc": "2.0", "id": "8", "method": "liturgy_agent.get_readings",
             "params": {"occasion": "mass", "date": target_date},
         }
-        resp1 = httpx.post(liturgy_url + "/", json=payload)
+        resp1 = a2a_post(liturgy_url + "/", json=payload)
         assert resp1.json()["result"]["status"] == "success"
 
-        resp2 = httpx.post(liturgy_url + "/", json=payload)
+        resp2 = a2a_post(liturgy_url + "/", json=payload)
         assert resp2.json()["result"]["status"] == "success"
         # Cache may be "web" if not implemented, but should not error
         source = resp2.json()["result"].get("source")

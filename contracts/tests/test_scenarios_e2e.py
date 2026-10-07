@@ -2,16 +2,15 @@
 Multi-step user scenario end-to-end tests.
 """
 
-import httpx
 import pytest
 
-from conftest import MOCK_LITURGICAL_DATA
+from conftest import MOCK_LITURGICAL_DATA, a2a_post
 
 
 class TestFullFlow:
     def test_readings_then_homily(self, liturgy_url, homily_url):
         """Full flow: get readings from liturgy agent, then generate homily."""
-        resp = httpx.post(liturgy_url + "/", json={
+        resp = a2a_post(liturgy_url + "/", json={
             "jsonrpc": "2.0", "id": "1", "method": "liturgy_agent.get_readings",
             "params": {"occasion": "mass"},
         })
@@ -20,7 +19,7 @@ class TestFullFlow:
         assert result["status"] == "success"
         readings = result["data"]
 
-        resp = httpx.post(homily_url + "/", json={
+        resp = a2a_post(homily_url + "/", json={
             "jsonrpc": "2.0", "id": "2", "method": "homily.generate",
             "params": {
                 "liturgical_data": readings,
@@ -36,7 +35,7 @@ class TestFullFlow:
 
     def test_wedding_flow(self, liturgy_url, homily_url):
         """Wedding flow: lectionary → homily generation."""
-        resp = httpx.post(liturgy_url + "/", json={
+        resp = a2a_post(liturgy_url + "/", json={
             "jsonrpc": "2.0", "id": "1", "method": "liturgy_agent.get_lectionary",
             "params": {"occasion": "marriage"},
         })
@@ -44,7 +43,7 @@ class TestFullFlow:
         lectionary_result = resp.json()["result"]
         assert "lectionary" in lectionary_result
 
-        resp = httpx.post(homily_url + "/", json={
+        resp = a2a_post(homily_url + "/", json={
             "jsonrpc": "2.0", "id": "2", "method": "homily.generate",
             "params": {
                 "liturgical_data": MOCK_LITURGICAL_DATA,
@@ -57,14 +56,14 @@ class TestFullFlow:
 
     def test_error_recovery(self, liturgy_url):
         """Error on bad request, then success on corrected request."""
-        resp1 = httpx.post(liturgy_url + "/", json={
+        resp1 = a2a_post(liturgy_url + "/", json={
             "jsonrpc": "2.0", "id": "1", "method": "liturgy_agent.get_readings",
             "params": {},
         })
         assert resp1.status_code == 200
         assert "error" in resp1.json()
 
-        resp2 = httpx.post(liturgy_url + "/", json={
+        resp2 = a2a_post(liturgy_url + "/", json={
             "jsonrpc": "2.0", "id": "2", "method": "liturgy_agent.get_readings",
             "params": {"occasion": "mass"},
         })

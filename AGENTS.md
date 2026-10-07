@@ -178,8 +178,11 @@ HTTP-only microservices deployment (see ADR-002).
 ### Security
 
 All A2A HTTP requests carry HTTP Basic Auth headers (`A2A_BASIC_AUTH_USERNAME` /
-`A2A_BASIC_AUTH_PASSWORD`). The `/health` endpoint bypasses auth. The A2A server
-validates credentials via `_basic_auth_middleware` in `server.py:401`.
+`A2A_BASIC_AUTH_PASSWORD`). Both values are required for normal HTTP app creation;
+partial pairs fail closed. The `/health` endpoint bypasses auth. Opt-in
+unauthenticated development uses `A2A_ALLOW_UNAUTHENTICATED=true` and still
+rejects partial pairs. The A2A server validates credentials via
+`_basic_auth_middleware` in `server.py`.
 
 ---
 

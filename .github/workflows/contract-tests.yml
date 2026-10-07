@@ -52,6 +52,8 @@ jobs:
         env:
           TEST_MODE: true
           DATABASE_PATH: /tmp/liturgy_cache.db
+          A2A_BASIC_AUTH_USERNAME: a2a-test
+          A2A_BASIC_AUTH_PASSWORD: a2a-test-secret
 
       - name: Start homily agent
         working-directory: packages/homily-agent
@@ -60,6 +62,8 @@ jobs:
           echo "HOMILY_PID=$!" >> $GITHUB_ENV
         env:
           TEST_MODE: true
+          A2A_BASIC_AUTH_USERNAME: a2a-test
+          A2A_BASIC_AUTH_PASSWORD: a2a-test-secret
 
       - name: Start chat orchestrator
         working-directory: packages/chat-orchestrator
@@ -77,6 +81,8 @@ jobs:
           CHAT_REQUEST_TIMEOUT_SECONDS: "60"
           A2A_LITURGY_URL: http://localhost:8001
           A2A_HOMILY_URL: http://localhost:8002
+          A2A_BASIC_AUTH_USERNAME: a2a-test
+          A2A_BASIC_AUTH_PASSWORD: a2a-test-secret
           CORS_ORIGINS: http://localhost:3000
 
       - name: Wait for agents to be ready
@@ -114,6 +120,8 @@ jobs:
         env:
           A2A_LITURGY_URL: http://localhost:8001
           A2A_HOMILY_URL: http://localhost:8002
+          A2A_BASIC_AUTH_USERNAME: a2a-test
+          A2A_BASIC_AUTH_PASSWORD: a2a-test-secret
           WS_JWT_SECRET: test-jwt-secret-for-ci-32-bytes-minimum
           ORCHESTRATOR_API_KEY: test-orchestrator-key
           RATE_LIMIT_MESSAGES_PER_HOUR: "3"

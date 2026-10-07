@@ -13,6 +13,8 @@ from typing import Any
 import httpx
 from pydantic import BaseModel, Field
 
+from conftest import a2a_apost
+
 
 # Load contract specification
 CONTRACT_PATH = Path(__file__).parent.parent / "liturgy-agent-contract.json"
@@ -94,9 +96,8 @@ async def make_message_send(cmd_method: str, cmd_params: dict | None = None) -> 
             }
         }
     }
-    async with httpx.AsyncClient(timeout=15.0) as client:
-        response = await client.post(AGENT_ENDPOINT, json=payload)
-        return response.json()
+    response = await a2a_apost(AGENT_ENDPOINT, json=payload, timeout=15.0)
+    return response.json()
 
 
 class TestLiturgyAgentContract:

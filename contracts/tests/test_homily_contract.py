@@ -15,7 +15,7 @@ from typing import Any, Dict, Optional
 import httpx
 import pytest
 
-from conftest import MOCK_LITURGICAL_DATA
+from conftest import MOCK_LITURGICAL_DATA, a2a_auth_headers
 
 
 # Configuration from contract
@@ -59,7 +59,7 @@ def contract() -> Dict[str, Any]:
 @pytest.fixture
 def http_client() -> httpx.Client:
     """Create an HTTP client for A2A requests."""
-    return httpx.Client(timeout=120.0)
+    return httpx.Client(timeout=120.0, headers=a2a_auth_headers())
 
 
 def make_message_send(
@@ -80,7 +80,7 @@ def make_message_send(
             }
         },
     }
-    with_cls = client or httpx.Client(timeout=120.0)
+    with_cls = client or httpx.Client(timeout=120.0, headers=a2a_auth_headers())
     try:
         response = with_cls.post(f"{HOMILY_AGENT_URL}/", json=payload)
         response.raise_for_status()

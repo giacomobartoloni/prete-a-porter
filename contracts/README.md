@@ -85,17 +85,20 @@ The following variables must be set for live/E2E tests:
 | Variable | Required for | Source |
 |----------|-------------|--------|
 | `WS_JWT_SECRET` | WebSocket tests (chat orchestrator) | `.env` (auto-loaded by conftest) |
-| `A2A_BASIC_AUTH_USERNAME` | A2A HTTP requests | `.env` — **must be empty to run tests** (test helpers don't send auth headers) |
-| `A2A_BASIC_AUTH_PASSWORD` | A2A HTTP requests | `.env` — **must be empty to run tests** |
+| `A2A_BASIC_AUTH_USERNAME` | A2A HTTP requests | Required complete pair (Compose rejects unset/empty) |
+| `A2A_BASIC_AUTH_PASSWORD` | A2A HTTP requests | Required complete pair matching the agents under test |
 | `OPENAI_API_KEY` | Homily generation (LLM) | `.env` — needed for `homily.generate`/`refine`/`adjust_tone` |
 | `A2A_LITURGY_URL` | Liturgy agent URL | Defaults to `http://localhost:8001` |
 | `A2A_HOMILY_URL` | Homily agent URL | Defaults to `http://localhost:8002` |
 
-> **Note on Basic Auth:** The test helpers (`make_message_send`, `httpx.post`) do not
-> send `Authorization` headers. If `A2A_BASIC_AUTH_*` are set, all live/E2E tests will
-> 401. To run the full suite, start Docker with auth disabled:
+> **Note on Basic Auth:** Normal A2A HTTP execution requires a complete credential
+> pair. Contract helpers send matching `Authorization: Basic` headers via
+> `a2a_auth_headers()` / `a2a_post()`. When unset, conftest installs the disposable
+> pair `a2a-test` / `a2a-test-secret` for the test process only — start agents with
+> the same values:
 > ```bash
-> A2A_BASIC_AUTH_USERNAME= A2A_BASIC_AUTH_PASSWORD= docker compose up -d --build liturgy-agent homily-agent chat-orchestrator
+> A2A_BASIC_AUTH_USERNAME=a2a-test A2A_BASIC_AUTH_PASSWORD=a2a-test-secret \
+>   docker compose up -d --build liturgy-agent homily-agent chat-orchestrator
 > ```
 
 ## Fixtures (conftest.py)
