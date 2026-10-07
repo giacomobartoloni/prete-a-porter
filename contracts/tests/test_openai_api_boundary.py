@@ -118,18 +118,22 @@ class TestRateLimit:
     def test_exhausted_quota_returns_429(self, chat_base):
         user = f"quota-user-{uuid.uuid4().hex}"
         headers = {**AUTH, "X-OpenWebUI-User-Id": user}
-        last = None
-        for _ in range(HOURLY_LIMIT + 1):
-            last = httpx.post(
+        for _ in range(HOURLY_LIMIT):
+            response = httpx.post(
                 f"{chat_base}/v1/chat/completions",
                 headers=headers,
                 json=_payload(),
                 timeout=60.0,
             )
-            if last.status_code == 429:
-                break
-        assert last is not None
-        assert last.status_code == 429
-        body = last.json()
+            assert response.status_code == 200, response.text
+
+        limited = httpx.post(
+            f"{chat_base}/v1/chat/completions",
+            headers=headers,
+            json=_payload(),
+            timeout=60.0,
+        )
+        assert limited.status_code == 429
+        body = limited.json()
         assert body["error"]["type"] == "rate_limit_exceeded"
         assert "limite" in body["error"]["message"].lower()
