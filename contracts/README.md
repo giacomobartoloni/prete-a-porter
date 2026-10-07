@@ -12,7 +12,7 @@ The suite has four layers, each with different infrastructure requirements:
 |-------|-------|:---:|:---:|-----------|
 | **A. Contract definition** | `test_liturgy_contract.py::TestContractCompliance`, `test_homily_contract.py::TestHomilyContractDefinition` | No | No | Validates contract JSON files: required fields, method names, error codes, enum values |
 | **B. Live agent** | `test_liturgy_contract.py::TestLiturgyAgentContract`, `test_homily_contract.py::TestHomilyAgentContract` | Yes (ports 8001/8002) | No | Sends `message/send` requests, validates reply against Pydantic models. Skips if agent unreachable |
-| **C. E2E** | `test_liturgy_agent_e2e.py`, `test_homily_agent_e2e.py`, `test_chat_orchestrator_e2e.py`, `test_scenarios_e2e.py` | Yes (ports 8000-8002) | Optional | Raw JSON-RPC POSTs + WebSocket flows. `conftest.py` can start Docker Compose automatically |
+| **C. E2E** | `test_liturgy_agent_e2e.py`, `test_homily_agent_e2e.py`, `test_chat_orchestrator_e2e.py`, `test_scenarios_e2e.py` | Yes (ports 8000-8002) | No (explicit start) | Raw JSON-RPC POSTs + WebSocket flows. Start the test stack yourself; fixtures never manage Compose |
 | **D. Protocol unit** | `packages/a2a-protocol/tests/` | No | No | Mock-handler unit tests of the A2A server, transport, and LLM factory |
 
 ## Test File Structure
@@ -23,7 +23,8 @@ contracts/
 ├── homily-agent-contract.json       # Homily agent API spec (4 methods)
 ├── pyproject.toml                   # pytest config, dependencies
 └── tests/
-    ├── conftest.py                        # Fixtures: .env loader, Docker lifecycle, URL fixtures, MOCK_LITURGICAL_DATA
+    ├── conftest.py                        # Fixtures: .env loader, URL fixtures, MOCK_LITURGICAL_DATA (no Compose lifecycle)
+    ├── test_docker_lifecycle_safety.py    # Regression: fixtures never start/stop/delete the shared stack
     ├── test_liturgy_contract.py           # Layer A+B: contract definition + live agent
     ├── test_homily_contract.py            # Layer A+B: contract definition + live agent
     ├── test_liturgy_agent_e2e.py          # Layer C: liturgy agent A2A methods
@@ -61,10 +62,11 @@ uv run pytest tests/test_liturgy_contract.py::TestContractCompliance \
 cd contracts && uv run pytest tests/test_liturgy_contract.py tests/test_homily_contract.py -v
 cd packages/a2a-protocol && uv run pytest -v
 
-# --- Layer A+B+C: Full suite via Docker Compose (auto starts/stops services) ---
+# --- Layer B+C: start agents explicitly, then run (fixtures never compose up/down) ---
+docker compose up -d --build liturgy-agent homily-agent chat-orchestrator
 cd contracts && uv run pytest tests/ -v
 
-# --- Full suite, services already running ---
+# --- Compatibility: --no-docker is accepted and is a no-op (same behaviour) ---
 cd contracts && uv run pytest tests/ -v --no-docker
 
 # --- Specific agent ---
@@ -100,7 +102,7 @@ The following variables must be set for live/E2E tests:
 
 | Fixture | Scope | Description |
 |---------|-------|-------------|
-| `docker_compose` | session | Starts/stops Docker Compose (skipped with `--no-docker`) |
+| `docker_compose` | session | No-op availability marker; never starts/stops Compose (`--no-docker` kept for compatibility) |
 | `_ensure_docker` | module | Depends on `docker_compose` |
 | `liturgy_url` | function | Returns `http://localhost:8001` |
 | `homily_url` | function | Returns `http://localhost:8002` |

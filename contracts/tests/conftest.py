@@ -1,14 +1,12 @@
 """
 Shared fixtures for end-to-end tests.
 
-Handles Docker Compose lifecycle and provides URL fixtures
-for all agent services.
+Provides URL fixtures for agent services. Contract tests never start, stop,
+or delete the shared Docker Compose stack; start the test services explicitly
+before running live/E2E layers.
 """
 
-import json
 import os
-import subprocess
-import time
 
 import pytest
 
@@ -42,7 +40,10 @@ def pytest_addoption(parser):
         "--no-docker",
         action="store_true",
         default=False,
-        help="Skip Docker Compose lifecycle (assume services are already running)",
+        help=(
+            "Compatibility flag: contract fixtures never manage Docker Compose. "
+            "Start the test stack explicitly before live/E2E runs."
+        ),
     )
 
 
@@ -50,55 +51,19 @@ def pytest_configure(config):
     config.addinivalue_line("markers", "slow: marks tests as slow (deselect with '-m \"not slow\"')")
 
 
-def _wait_for_healthy(timeout: int = 120):
-    """Poll docker compose ps until all agent services are healthy."""
-    deadline = time.time() + timeout
-    while time.time() < deadline:
-        result = subprocess.run(
-            ["docker", "compose", "ps", "--format", "json"],
-            capture_output=True, text=True, cwd=PROJECT_ROOT,
-        )
-        lines = [l for l in result.stdout.strip().split("\n") if l]
-        if not lines:
-            time.sleep(3)
-            continue
-        try:
-            services = [json.loads(line) for line in lines]
-        except json.JSONDecodeError:
-            time.sleep(3)
-            continue
-
-        agent_services = [s for s in services if s.get("Service") not in ("a2a-inspector",)]
-        all_healthy = all(s.get("Health") == "healthy" for s in agent_services if "Health" in s)
-        if all_healthy:
-            return
-        time.sleep(3)
-
-    pytest.fail("Services did not become healthy within {timeout}s")
-
-
 @pytest.fixture(scope="session")
 def docker_compose(request):
-    """Start all services before test session, stop after."""
-    if request.config.getoption("--no-docker"):
-        yield
-        return
+    """Require an explicitly started test stack; never manage Compose lifecycle.
 
-    subprocess.run(
-        ["docker", "compose", "up", "-d", "--build"],
-        check=True, cwd=PROJECT_ROOT,
-    )
-    _wait_for_healthy()
+    `--no-docker` remains accepted for compatibility and has the same behaviour.
+    """
+    _ = request.config.getoption("--no-docker")
     yield
-    subprocess.run(
-        ["docker", "compose", "down", "-v"],
-        check=True, cwd=PROJECT_ROOT,
-    )
 
 
 @pytest.fixture(scope="module")
 def _ensure_docker(docker_compose):
-    """Ensure Docker services are running (depends on session-scoped docker_compose)."""
+    """Mark live/E2E modules as depending on an explicitly started stack."""
     pass
 
 

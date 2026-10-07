@@ -679,10 +679,11 @@ cd packages/prete-chat && uv run pytest -v
 cd contracts && uv run pytest tests/test_liturgy_contract.py::TestContractCompliance \
                tests/test_homily_contract.py::TestHomilyContractDefinition -v
 
-# --- Contract tests (full suite via Docker Compose) ---
+# --- Contract tests (start agents explicitly first; fixtures never manage Compose) ---
+docker compose up -d --build liturgy-agent homily-agent chat-orchestrator
 cd contracts && uv run pytest tests/ -v
 
-# --- Contract tests (services already running) ---
+# --- Compatibility: --no-docker is accepted and is a no-op ---
 cd contracts && uv run pytest tests/ -v --no-docker
 
 # --- With coverage ---
@@ -694,7 +695,8 @@ cd packages/a2a-protocol && uv run pytest tests/test_transport_routes.py -v
 
 > **Note:** Contract live/E2E tests require running agents. Start them via
 > `docker compose up -d --build liturgy-agent homily-agent chat-orchestrator`
-> or let `conftest.py` manage Docker Compose automatically. See
+> before the suite. `contracts/tests/conftest.py` never starts, stops, or
+> deletes the shared Compose stack. See
 > [`contracts/README.md`](contracts/README.md) for env requirements.
 
 ### Test Categories
@@ -704,7 +706,7 @@ cd packages/a2a-protocol && uv run pytest tests/test_transport_routes.py -v
 | Unit | Individual modules, isolated | `packages/*/tests/` | Fast, no external dependencies, uses mocks |
 | Contract definition | Static JSON contract validation | `contracts/tests/test_*_contract.py` | No agents needed; validates fields, methods, error codes |
 | Live agent | A2A message/send against running agent | `contracts/tests/test_*_contract.py` | Requires agents on ports 8001/8002; skips if unreachable |
-| E2E | Full user → chat → agent flows | `contracts/tests/test_*_e2e.py` | Requires Docker Compose or `--no-docker` with running services |
+| E2E | Full user → chat → agent flows | `contracts/tests/test_*_e2e.py` | Requires an explicitly started test stack; fixtures never manage Compose |
 
 ### CI
 
