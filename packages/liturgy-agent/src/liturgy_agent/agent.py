@@ -33,7 +33,8 @@ from .cache import LiturgyCache
 from .scrapers import (
     fetch_liturgical_data,
     EvangelizeScraper,
-    ScraperError
+    ScraperError,
+    assert_complete_mass_reading,
 )
 
 logger = logging.getLogger(__name__)
@@ -47,15 +48,16 @@ class LiturgyAgent:
     and returning appropriate Mass readings and information.
     """
     
-    def __init__(self, llm: Any):
+    def __init__(self, llm: Any, cache_db_path: str | None = None):
         """
         Initialize the Liturgy Agent.
         
         Args:
             llm: Language model for reasoning and parsing
+            cache_db_path: Optional SQLite path for the readings cache
         """
         self.llm = llm
-        self.cache = LiturgyCache()
+        self.cache = LiturgyCache(db_path=cache_db_path)
         self.tools = self._setup_tools()
     
     def _setup_tools(self):
@@ -90,10 +92,10 @@ class LiturgyAgent:
         else:
             target_date = datetime.fromisoformat(date)
         
-        # Try cache first
+        # Try cache first (poisoned/incomplete rows are treated as misses)
         cached = self.cache.get(
             target_date.strftime("%Y-%m-%d"),
-            "Mass of the Day"
+            "mass"
         )
         if cached:
             return {
@@ -433,7 +435,7 @@ class LiturgyAgent:
             sunday_or_weekday="Sunday" if date.weekday() == 6 else "Weekday",
         )
 
-        return LiturgicalReading(
+        reading = LiturgicalReading(
             date=date.strftime("%Y-%m-%d"),
             occasion="mass",
             metadata=metadata,
@@ -445,6 +447,7 @@ class LiturgyAgent:
             cached_at=datetime.now(),
             source=ev.get("source", "evangelizo.ws"),
         )
+        return assert_complete_mass_reading(reading)
 
 
 async def agent_node(

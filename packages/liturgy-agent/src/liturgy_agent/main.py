@@ -149,7 +149,7 @@ class LiturgyAgentHandler:
                     target_date
                 )
 
-                # Cache the result
+                # Cache the result (set validates completeness)
                 cache.set(reading)
                 logger.info("Scraped readings cached successfully.")
 

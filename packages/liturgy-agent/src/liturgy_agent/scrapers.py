@@ -36,6 +36,41 @@ class ScraperError(Exception):
     pass
 
 
+def assert_complete_mass_reading(reading: "LiturgicalReading") -> "LiturgicalReading":
+    """Require nonblank first reading, psalm, and gospel; weekday second may be absent.
+
+    A present second reading must also have nonblank reference and text.
+    """
+    from .state import LiturgicalReading  # local import for type/runtime check
+
+    if not isinstance(reading, LiturgicalReading):
+        raise ScraperError("Incomplete Mass readings: expected LiturgicalReading")
+
+    required = (
+        ("first_reading", reading.first_reading),
+        ("psalm", reading.psalm),
+        ("gospel", reading.gospel),
+    )
+    for name, entry in required:
+        if entry is None:
+            raise ScraperError(f"Incomplete Mass readings: missing required {name}")
+        ref = (entry.reference or "").strip()
+        text = (entry.text or "").strip()
+        if not ref or not text:
+            raise ScraperError(
+                f"Incomplete Mass readings: required {name} has blank reference or text"
+            )
+
+    if reading.second_reading is not None:
+        ref = (reading.second_reading.reference or "").strip()
+        text = (reading.second_reading.text or "").strip()
+        if not ref or not text:
+            raise ScraperError(
+                "Incomplete Mass readings: second_reading is present but incomplete"
+            )
+    return reading
+
+
 class EvangelizeScraper:
     """
     Scraper for evangelizo.org - official Vatican daily readings source.
@@ -106,7 +141,7 @@ class EvangelizeScraper:
                     payload = response.json()
                     return self._parse_daily_gospel_api(payload, date_str)
             
-            except httpx.HTTPError as e:
+            except (httpx.HTTPError, httpx.RequestError, OSError) as e:
                 logger.warning(
                     "Scraping error: %s (attempt %s/%s)",
                     e,
@@ -116,30 +151,11 @@ class EvangelizeScraper:
                 if attempt < self.MAX_RETRIES - 1:
                     await asyncio.sleep(self.RETRY_DELAY)
                     continue
-                if attempt >= self.MAX_RETRIES - 1:
-                    if HAS_BS4:
-                        logger.info("API failed; attempting HTML fallback")
-                        return await self._fetch_daily_gospel_html(date_str)
-                    raise ScraperError(
-                        f"Failed to fetch from {api_url} after {self.MAX_RETRIES} attempts: {e}"
-                    ) from e
+                raise ScraperError(
+                    f"Failed to fetch from {api_url} after {self.MAX_RETRIES} attempts: {e}"
+                ) from e
         
         raise ScraperError("Unexpected error in Evangelizo scraper")
-
-    async def _fetch_daily_gospel_html(self, date_str: str) -> dict:
-        """
-        Fallback HTML fetch for the daily Gospel page.
-        """
-        if not HAS_BS4:
-            raise ScraperError("beautifulsoup4 is required for HTML fallback")
-
-        url = f"{self.BASE_URL}/{self.LANG_CODE}/gospel/{date_str}/"
-        async with httpx.AsyncClient(timeout=self.TIMEOUT) as client:
-            logger.info("Scraping request: GET %s (HTML fallback)", url)
-            response = await client.get(url, follow_redirects=True)
-            logger.info("Scraping response: %s %s", response.status_code, url)
-            response.raise_for_status()
-            return self._parse_daily_gospel(response.text, date_str)
 
     def _parse_daily_gospel_api(self, payload: dict, date_str: str) -> dict:
         """
@@ -178,16 +194,26 @@ class EvangelizeScraper:
 
         if not gospel_entry:
             raise ScraperError(f"No gospel reading found for {date_str}")
+        if not plain_readings:
+            raise ScraperError(f"No first reading found for {date_str}")
+        if not psalm_entry:
+            raise ScraperError(f"No psalm reading found for {date_str}")
 
-        first_reading  = _parse_entry(plain_readings[0]) if len(plain_readings) >= 1 else None
+        first_reading  = _parse_entry(plain_readings[0])
         second_reading = _parse_entry(plain_readings[1]) if len(plain_readings) >= 2 else None
-
-        psalm = None
-        if psalm_entry:
-            psalm = _parse_entry(psalm_entry)
-            psalm["chorus"] = psalm_entry.get("chorus") or ""
-
+        psalm = _parse_entry(psalm_entry)
+        psalm["chorus"] = psalm_entry.get("chorus") or ""
         gospel = _parse_entry(gospel_entry)
+
+        for name, entry in (
+            ("first_reading", first_reading),
+            ("psalm", psalm),
+            ("gospel", gospel),
+        ):
+            if not (entry.get("reference") or "").strip() or not (entry.get("text") or "").strip():
+                raise ScraperError(
+                    f"Incomplete Mass readings from upstream: blank {name} for {date_str}"
+                )
 
         # Liturgical metadata
         liturgy_block  = data.get("liturgy") or {}
@@ -219,73 +245,13 @@ class EvangelizeScraper:
             "scraped_at": datetime.now().isoformat(),
         }
 
-        if first_reading:
-            result["first_reading"] = first_reading
-        if psalm:
-            result["psalm"] = psalm
+        result["first_reading"] = first_reading
+        result["psalm"] = psalm
         if second_reading:
             result["second_reading"] = second_reading
         result["gospel"] = gospel
 
         return result
-    
-    def _parse_daily_gospel(self, html: str, date_str: str) -> dict:
-        """
-        Parse HTML response from evangelizo.org.
-        
-        Args:
-            html: HTML content
-            date_str: Date string in YYYY-MM-DD format
-            
-        Returns:
-            Dictionary with parsed Gospel data
-        """
-        soup = BeautifulSoup(html, 'html.parser')
-        
-        # Extract Gospel section
-        gospel_section = soup.find(
-            'div',
-            class_=re.compile(r'gospel|reading.*gospel', re.IGNORECASE)
-        )
-        
-        if not gospel_section:
-            raise ScraperError(f"Could not find Gospel section for {date_str}")
-        
-        # Extract reference
-        ref_elem = gospel_section.find(
-            ['span', 'h3', 'h4'],
-            class_=re.compile(r'reference|citation', re.IGNORECASE)
-        )
-        reference = ref_elem.get_text(strip=True) if ref_elem else "Unknown"
-        
-        # Extract text
-        text_elem = gospel_section.find(
-            ['p', 'div'],
-            class_=re.compile(r'text|content', re.IGNORECASE)
-        )
-        text = text_elem.get_text(strip=True) if text_elem else ""
-        
-        # Extract commentary
-        commentary_section = soup.find(
-            'div',
-            class_=re.compile(r'comment|reflection', re.IGNORECASE)
-        )
-        commentary = ""
-        if commentary_section:
-            commentary_text = commentary_section.find(
-                ['p', 'div'],
-                class_=re.compile(r'text|content', re.IGNORECASE)
-            )
-            commentary = commentary_text.get_text(strip=True) if commentary_text else ""
-        
-        return {
-            "source": "vangelodelgiorno.org",
-            "date": date_str,
-            "gospel_reference": reference,
-            "gospel_text": text,
-            "commentary": commentary,
-            "scraped_at": datetime.now().isoformat()
-        }
 
 
 async def fetch_liturgical_data(
