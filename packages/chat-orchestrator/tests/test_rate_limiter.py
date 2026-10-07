@@ -177,6 +177,55 @@ class TestRateLimiterCheckAndIncrement:
             await limiter.close()
 
     @pytest.mark.asyncio
+    async def test_concurrent_check_and_increment_never_exceeds_limit(self, tmp_path):
+        import asyncio
+
+        from chat_orchestrator.rate_limiter import RateLimiter
+
+        db_path = str(tmp_path / "rate.db")
+        limiter = await RateLimiter.create(db_path, per_hour=1, per_day=100)
+        try:
+            results = await asyncio.wait_for(
+                asyncio.gather(
+                    *[limiter.check_and_increment("same-user") for _ in range(10)]
+                ),
+                timeout=5,
+            )
+            assert sum(1 for result in results if result.ok) == 1
+            cur = await limiter._conn.execute(
+                "SELECT COUNT(*) FROM message_log WHERE user_id = ?",
+                ("same-user",),
+            )
+            row = await cur.fetchone()
+            assert row[0] == 1
+        finally:
+            await limiter.close()
+
+    @pytest.mark.asyncio
+    async def test_concurrent_requests_keep_users_independent(self, tmp_path):
+        import asyncio
+
+        from chat_orchestrator.rate_limiter import RateLimiter
+
+        limiter = await RateLimiter.create(str(tmp_path / "rate.db"), per_hour=1, per_day=100)
+        try:
+            results = await asyncio.wait_for(
+                asyncio.gather(
+                    limiter.check_and_increment("user-a"),
+                    limiter.check_and_increment("user-b"),
+                    limiter.check_and_increment("user-a"),
+                    limiter.check_and_increment("user-b"),
+                ),
+                timeout=5,
+            )
+            assert results[0].ok is True
+            assert results[1].ok is True
+            assert results[2].ok is False
+            assert results[3].ok is False
+        finally:
+            await limiter.close()
+
+    @pytest.mark.asyncio
     async def test_reset_at_for_hour_limit(self):
         import time
         from chat_orchestrator.rate_limiter import RateLimiter
@@ -250,6 +299,36 @@ class TestMessageLoopRateLimit:
         assert payload["code"] == "rate_limit_exceeded"
         assert payload["limits"]["hour"]["remaining"] == 0
         assert payload["limits"]["day"]["remaining"] == 19
+
+
+class TestGetRateLimiterSingleton:
+    @pytest.mark.asyncio
+    async def test_concurrent_get_rate_limiter_creates_once(self, monkeypatch):
+        import asyncio
+
+        import chat_orchestrator.rate_limiter as limiter_mod
+
+        limiter_mod._rate_limiter = None
+        create_calls = 0
+        original_create = limiter_mod.RateLimiter.create
+
+        async def counting_create(*args, **kwargs):
+            nonlocal create_calls
+            create_calls += 1
+            await asyncio.sleep(0.01)
+            return await original_create(":memory:", per_hour=5, per_day=20)
+
+        monkeypatch.setattr(limiter_mod.RateLimiter, "create", counting_create)
+        try:
+            instances = await asyncio.gather(
+                *[limiter_mod.get_rate_limiter() for _ in range(10)]
+            )
+            assert create_calls == 1
+            assert all(instance is instances[0] for instance in instances)
+        finally:
+            if limiter_mod._rate_limiter is not None:
+                await limiter_mod._rate_limiter.close()
+                limiter_mod._rate_limiter = None
 
 
 def _parse_iso(iso: str) -> float:
