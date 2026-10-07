@@ -86,9 +86,12 @@ def _log_finished(
     )
 
 
-async def _invoke_graph(request: ChatCompletionRequest) -> str:
+async def _invoke_graph(
+    request: ChatCompletionRequest,
+    identity: CallerIdentity,
+) -> str:
     """Run the ReAct graph through the shared application seam."""
-    return await run_chat(request.messages)
+    return await run_chat(request.messages, session_id=identity.thread_id)
 
 
 async def _invoke_utility_llm(request: ChatCompletionRequest) -> str:
@@ -120,7 +123,10 @@ async def _stream_chat(
     ends the same way, with an in-band error the client can surface.
     """
     try:
-        async for chunk, metadata in stream_chat(request.messages):
+        async for chunk, metadata in stream_chat(
+            request.messages,
+            session_id=identity.thread_id,
+        ):
             if is_visible_token(chunk, metadata):
                 yield build_content_chunk(chunk.content, chunk_id=completion_id)
         yield build_finish_chunk(chunk_id=completion_id)
@@ -268,7 +274,7 @@ async def chat_completions(
         )
 
     try:
-        content = await _invoke_graph(request)
+        content = await _invoke_graph(request, identity)
     except TimeoutError:
         logger.error("Graph invocation timed out", request_id=completion_id)
         _log_finished(completion_id, identity, False, started, "timeout")

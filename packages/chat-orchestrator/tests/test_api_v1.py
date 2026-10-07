@@ -109,9 +109,25 @@ class TestBufferedCompletion:
         assert isinstance(msgs[0], HumanMessage)
         assert isinstance(msgs[1], AIMessage)
 
-    def test_no_thread_id_is_passed(self, client, graph_mock):
+    def test_no_thread_id_is_passed_in_config(self, client, graph_mock):
         client.post("/v1/chat/completions", json=_payload(), headers=AUTH_HEADERS)
         assert graph_mock.ainvoke.call_args[1]["config"] == {"recursion_limit": 15}
+
+    def test_forwarded_chat_id_becomes_graph_session_id(self, client, graph_mock):
+        client.post(
+            "/v1/chat/completions",
+            json=_payload(),
+            headers={**AUTH_HEADERS, "X-OpenWebUI-Chat-Id": "chat-123"},
+        )
+        state = graph_mock.ainvoke.call_args[0][0]
+        assert state["session_id"] == "chat-123"
+
+    def test_generated_thread_id_is_passed_when_chat_header_absent(self, client, graph_mock):
+        client.post("/v1/chat/completions", json=_payload(), headers=AUTH_HEADERS)
+        state = graph_mock.ainvoke.call_args[0][0]
+        assert "session_id" in state
+        assert isinstance(state["session_id"], str)
+        assert len(state["session_id"]) > 0
 
     def test_ignores_unknown_openwebui_fields(self, client):
         response = client.post("/v1/chat/completions", json=_payload(

@@ -77,6 +77,21 @@ def _contents(response) -> list[str]:
 
 
 class TestStreaming:
+    def test_forwarded_chat_id_becomes_graph_session_id(self, client, graph_mock):
+        captured: dict = {}
+
+        async def fake_astream(payload, config=None, **kwargs):
+            captured["state"] = payload
+            yield (AIMessageChunk(content="ok"), {"langgraph_node": "agent"})
+
+        graph_mock.astream = fake_astream
+        client.post(
+            "/v1/chat/completions",
+            json=_payload(stream=True),
+            headers={**AUTH_HEADERS, "X-OpenWebUI-Chat-Id": "chat-456"},
+        )
+        assert captured["state"]["session_id"] == "chat-456"
+
     def test_content_type_is_event_stream(self, client):
         response = client.post("/v1/chat/completions", json=_payload(stream=True), headers=AUTH_HEADERS)
         assert response.headers["content-type"].startswith("text/event-stream")
