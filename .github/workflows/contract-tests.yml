@@ -70,6 +70,11 @@ jobs:
           TEST_MODE: true
           DATABASE_PATH: /tmp/chat_orchestrator.db
           WS_JWT_SECRET: test-jwt-secret-for-ci
+          ORCHESTRATOR_API_KEY: test-orchestrator-key
+          RATE_LIMIT_DB_PATH: /tmp/rate_limiter.db
+          RATE_LIMIT_MESSAGES_PER_HOUR: "20"
+          RATE_LIMIT_MESSAGES_PER_DAY: "100"
+          CHAT_REQUEST_TIMEOUT_SECONDS: "60"
           A2A_LITURGY_URL: http://localhost:8001
           A2A_HOMILY_URL: http://localhost:8002
           CORS_ORIGINS: http://localhost:3000
@@ -110,6 +115,8 @@ jobs:
           A2A_LITURGY_URL: http://localhost:8001
           A2A_HOMILY_URL: http://localhost:8002
           WS_JWT_SECRET: test-jwt-secret-for-ci
+          ORCHESTRATOR_API_KEY: test-orchestrator-key
+          RATE_LIMIT_MESSAGES_PER_HOUR: "20"
 
       - name: Upload test results
         uses: actions/upload-artifact@v4
