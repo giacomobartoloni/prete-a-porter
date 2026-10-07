@@ -62,12 +62,20 @@ IMPORTANT: Never use emoticons or emojis in your responses. Keep all communicati
 def get_llm() -> object:
     """Get LLM instance. Wraps shared factory in local exception contract.
 
+    When ``TEST_MODE=true``, returns a LangChain-compatible fake that can run
+    the real graph (``bind_tools`` / ``ainvoke`` / ``astream``). The shared
+    ``a2a_protocol`` TEST_MODE AsyncMock is intentionally not used here.
+
     Returns:
-        ChatAnthropic, ChatGoogleGenerativeAI, or ChatOpenAI.
+        ChatAnthropic, ChatGoogleGenerativeAI, ChatOpenAI, or the TEST_MODE fake.
 
     Raises:
         LLMNotConfiguredException: If no API key is configured.
     """
+    if os.getenv("TEST_MODE") == "true":
+        from .testing import build_test_llm
+
+        return build_test_llm()
     try:
         return create_llm()
     except LLMNotConfiguredError:
