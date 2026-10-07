@@ -28,6 +28,9 @@ framework.
 LibreChat, OpenWebUI, and any OpenAI-compatible SDK connect to this service as a
 model provider. Every `/v1/*` route requires a bearer key.
 
+The endpoint implements the subset required by the supported chat shells;
+unsupported request fields are ignored. Usage counters are reported as zero.
+
 | Method | Path | Auth | Purpose |
 |---|---|---|---|
 | `GET` | `/v1/models` | Bearer | Advertises the single model `prete-a-porter` |

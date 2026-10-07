@@ -1,0 +1,101 @@
+name: Prete-chat Postgres Auth
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  postgres-auth:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:17.6-alpine
+        env:
+          POSTGRES_USER: chainlit
+          POSTGRES_PASSWORD: test-password
+          POSTGRES_DB: chainlit
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U chainlit -d chainlit"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgresql+asyncpg://chainlit:test-password@localhost:5432/chainlit
+      CHAINLIT_AUTH_SECRET: test-chainlit-secret-for-ci
+      CHAINLIT_URL: http://127.0.0.1:8000
+      PRETE_CHAT_URL: http://127.0.0.1:8000
+      TEST_MODE: "true"
+      RATE_LIMIT_DB_PATH: /tmp/prete-chat-rate.db
+      RATE_LIMIT_MESSAGES_PER_HOUR: "20"
+      RATE_LIMIT_MESSAGES_PER_DAY: "100"
+      A2A_LITURGY_URL: http://127.0.0.1:8001
+      A2A_HOMILY_URL: http://127.0.0.1:8002
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install UV
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: "latest"
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Apply Chainlit schema
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-client
+          PGPASSWORD=test-password psql -h localhost -U chainlit -d chainlit -f deploy/chainlit/init.sql
+
+      - name: Install prete-chat
+        working-directory: packages/prete-chat
+        run: uv sync --extra dev
+
+      - name: Run Postgres-backed unit/integration tests
+        working-directory: packages/prete-chat
+        run: uv run pytest tests/test_auth_postgres_integration.py::TestPasswordHashServerSide -v --junit-xml=postgres-auth-results.xml
+
+      - name: Start Chainlit
+        working-directory: packages/prete-chat
+        run: |
+          uv run chainlit run src/prete_chat/app.py -h --host 127.0.0.1 --port 8000 &
+          echo "CHAINLIT_PID=$!" >> $GITHUB_ENV
+          for i in $(seq 1 40); do
+            if curl -sf http://127.0.0.1:8000/health >/dev/null; then
+              echo "Chainlit is ready"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "Chainlit failed to start"
+          exit 1
+
+      - name: Run HTTP /user security smoke
+        working-directory: packages/prete-chat
+        run: uv run pytest tests/test_auth_postgres_integration.py::TestChainlitHttpUserEndpoint -v --junit-xml=postgres-http-results.xml
+
+      - name: Upload test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: prete-chat-postgres-results
+          path: packages/prete-chat/*-results.xml
+          retention-days: 7
+
+      - name: Stop Chainlit
+        if: always()
+        run: |
+          if [ -n "$CHAINLIT_PID" ]; then
+            kill $CHAINLIT_PID 2>/dev/null || true
+          fi
