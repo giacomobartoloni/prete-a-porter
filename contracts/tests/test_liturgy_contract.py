@@ -15,6 +15,7 @@ import httpx
 from pydantic import BaseModel, Field
 
 from conftest import a2a_apost
+from models import DailyMassResultContract, LectionaryRequestContract, LectionaryResultContract, PingRequestContract, PingResultContract, ReadingsErrorContract, ReadingsRequestContract, RitualReadingsResultContract, inline_schema
 
 
 # Load contract specification
@@ -46,22 +47,6 @@ class PingResult(BaseModel):
     status: str = Field(..., pattern="^pong$")
     agent: str = Field(..., pattern="^liturgy_agent$")
     version: str
-
-
-class ReadingsResult(BaseModel):
-    """Expected result schema for liturgy_agent.get_readings."""
-    status: str = Field(..., pattern="^(success|error)$")
-    data: dict | None = None
-    source: str | None = Field(None, pattern="^(web|cache|lectionary)$")
-    error: str | None = None
-    message: str | None = None
-
-
-class LectionaryResult(BaseModel):
-    """Expected result schema for liturgy_agent.get_lectionary."""
-    occasion: str
-    lectionary: dict
-    readings_count: int
 
 
 # Fixture to check if agent is running
@@ -148,10 +133,10 @@ class TestLiturgyAgentContract:
         if "error" in reply:
             pytest.fail(f"Readings error: {reply.get('error')}")
 
-        readings_result = ReadingsResult(**reply)
+        readings_result = DailyMassResultContract.model_validate(reply)
         assert readings_result.status == "success"
         assert readings_result.data is not None
-        assert "date" in readings_result.data or "occasion" in readings_result.data
+        assert readings_result.data.occasion == "mass"
 
     @pytest.mark.asyncio
     async def test_get_lectionary_format(self, agent_available):
@@ -164,9 +149,35 @@ class TestLiturgyAgentContract:
         if "error" in reply:
             pytest.fail(f"Lectionary error: {reply.get('error')}")
 
-        lectionary_result = LectionaryResult(**reply)
+        lectionary_result = LectionaryResultContract.model_validate(reply)
         assert lectionary_result.occasion == "marriage"
         assert lectionary_result.readings_count >= 0
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("occasion", ["marriage", "baptism", "funeral"])
+    async def test_ritual_readings_consumer_shape(self, agent_available, occasion):
+        require_agent_available(agent_available)
+        reply = extract_reply(await make_message_send("liturgy_agent.get_readings", {"occasion": occasion}))
+        result = RitualReadingsResultContract.model_validate(reply)
+        assert set(result.data.root) == {occasion}
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("method,params", [
+        ("liturgy_agent.unknown", {}),
+        ("liturgy_agent.get_readings", {}),
+        ("liturgy_agent.get_readings", {"occasion": "invalid"}),
+        ("liturgy_agent.get_readings", {"occasion": "mass", "date": "invalid"}),
+    ])
+    async def test_custom_root_errors_are_sanitized(self, agent_available, method, params):
+        require_agent_available(agent_available)
+        response = await a2a_apost(AGENT_ENDPOINT, json={"jsonrpc": "2.0", "id": "invalid-input", "method": method, "params": params})
+        assert response.status_code == 200
+        body = response.json()
+        assert body["id"] == "invalid-input"
+        assert body["error"]["code"] == -32603
+        assert body["error"]["message"] == "Internal error"
+        assert set(body["error"]["data"]) == {"error_id"}
+        assert body["error"]["data"]["error_id"]
 
 
 class TestContractCompliance:
@@ -194,6 +205,7 @@ class TestContractCompliance:
         assert contract["name"] == "liturgy-agent"
         assert contract["transport"]["type"] == "http"
         assert contract["transport"]["port"] == 8001
+        assert contract["transport"]["endpoint"] == "/"
         assert contract["protocol"]["type"] == "jsonrpc"
         assert contract["protocol"]["version"] == "2.0"
 
@@ -211,8 +223,44 @@ class TestContractCompliance:
         contract = load_contract()
 
         assert "error_codes" in contract
-        assert "-32700" in contract["error_codes"]
-        assert "-32600" in contract["error_codes"]
-        assert "-32601" in contract["error_codes"]
-        assert "-32602" in contract["error_codes"]
         assert "-32603" in contract["error_codes"]
+
+    def test_daily_and_ritual_response_variants(self):
+        # These assertions intentionally duplicate the consumer-visible contract.
+        # Do not weaken to generic dict assertions; they are a drift guard.
+        contract = load_contract()
+        readings = next(m for m in contract["methods"] if m["name"] == "liturgy_agent.get_readings")
+        assert "daily" in readings["params"]["properties"]["occasion"]["enum"]
+        daily, ritual, error = readings["returns"]["oneOf"]
+        fields = daily["properties"]["data"]["properties"]
+        assert set(fields) == {"date", "occasion", "metadata", "first_reading", "psalm", "second_reading", "gospel", "alleluia_verse", "cached_at", "source"}
+        assert ritual["properties"]["source"]["const"] == "lectionary"
+        assert error["properties"]["status"]["const"] == "error"
+
+    def test_lectionary_has_no_obsolete_bug(self):
+        method = next(m for m in load_contract()["methods"] if m["name"] == "liturgy_agent.get_lectionary")
+        assert "KNOWN BUG" not in json.dumps(method)
+        assert "AttributeError" not in json.dumps(method)
+
+    @pytest.mark.parametrize("name", ["agent.ping", "liturgy_agent.get_readings", "liturgy_agent.get_lectionary"])
+    def test_schemas_and_examples_match_independent_consumers(self, name):
+        method = next(m for m in load_contract()["methods"] if m["name"] == name)
+        request_model = {"agent.ping": PingRequestContract, "liturgy_agent.get_readings": ReadingsRequestContract, "liturgy_agent.get_lectionary": LectionaryRequestContract}[name]
+        results = [DailyMassResultContract, RitualReadingsResultContract, ReadingsErrorContract] if name.endswith("get_readings") else [PingResultContract if name == "agent.ping" else LectionaryResultContract]
+        assert method["params"] == inline_schema(request_model)
+        expected = {"oneOf": [inline_schema(model) for model in results]} if len(results) > 1 else inline_schema(results[0])
+        if name == "agent.ping":
+            expected["properties"]["agent"] = {"type": "string", "const": "liturgy_agent"}
+        assert method["returns"] == expected
+        for label, example in method["examples"].items():
+            if label.startswith("request"):
+                assert example["method"] == name
+                request_model.model_validate(example["params"])
+            elif "result" in example:
+                result = example["result"]
+                model = ReadingsErrorContract if result.get("status") == "error" else RitualReadingsResultContract if result.get("source") == "lectionary" else results[0]
+                model.model_validate(result)
+            else:
+                assert example["error"]["code"] == -32603
+                assert example["error"]["message"] == "Internal error"
+                assert example["error"]["data"]["error_id"]

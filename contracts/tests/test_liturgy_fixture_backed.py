@@ -10,11 +10,11 @@ import pytest
 
 from test_liturgy_contract import (
     AGENT_URL,
-    ReadingsResult,
     extract_reply,
     make_message_send,
     require_agent_available,
 )
+from models import DailyMassResultContract, ReadingsErrorContract
 
 
 @pytest.fixture
@@ -30,26 +30,25 @@ def agent_available():
 
 
 @pytest.mark.asyncio
-async def test_fixture_backed_get_readings_happy(agent_available):
+@pytest.mark.parametrize("occasion", ["mass", "daily"])
+async def test_fixture_backed_get_readings_happy(agent_available, occasion):
     """Daily Mass happy path must succeed against deterministic fixtures."""
     require_agent_available(agent_available)
 
     data = await make_message_send(
         "liturgy_agent.get_readings",
-        {"occasion": "mass", "date": "2026-05-19"},
+        {"occasion": occasion, "date": "2026-05-19"},
     )
     reply = extract_reply(data)
-    result = ReadingsResult(**reply)
+    result = DailyMassResultContract.model_validate(reply)
     assert result.status == "success"
+    assert result.data.occasion == "mass"
     assert result.data is not None
-    assert result.data.get("first_reading", {}).get("text")
-    assert result.data.get("psalm", {}).get("text")
-    assert result.data.get("gospel", {}).get("text")
+    assert result.data.first_reading.text.strip()
+    assert result.data.psalm.text.strip()
+    assert result.data.gospel.text.strip()
     # Weekday fixture has no second reading — optional must stay absent/empty-ok.
-    second = result.data.get("second_reading")
-    assert second is None or not (second.get("text") or "").strip() or (
-        second.get("reference") and second.get("text")
-    )
+    assert result.data.second_reading is None
 
 
 @pytest.mark.asyncio
@@ -58,10 +57,10 @@ async def test_fixture_backed_sunday_requires_complete_second(agent_available):
     data = await make_message_send(
         "liturgy_agent.get_readings", {"occasion": "mass", "date": "2026-10-11"}
     )
-    result = ReadingsResult(**extract_reply(data))
+    result = DailyMassResultContract.model_validate(extract_reply(data))
     assert result.status == "success"
-    assert result.data["second_reading"]["reference"]
-    assert result.data["second_reading"]["text"]
+    assert result.data.second_reading.reference.strip()
+    assert result.data.second_reading.text.strip()
 
 
 @pytest.mark.asyncio
@@ -74,7 +73,7 @@ async def test_fixture_backed_get_readings_upstream_error(agent_available):
         {"occasion": "mass", "date": "2099-12-31"},
     )
     reply = extract_reply(data)
-    result = ReadingsResult(**reply)
+    result = ReadingsErrorContract.model_validate(reply)
     assert result.status == "error"
     assert result.error or result.message
 
@@ -89,10 +88,10 @@ async def test_fixture_backed_current_date_readings(agent_available):
         {"occasion": "mass"},
     )
     reply = extract_reply(data)
-    result = ReadingsResult(**reply)
+    result = DailyMassResultContract.model_validate(reply)
     assert result.status == "success"
     assert result.data is not None
-    assert result.data.get("gospel", {}).get("text")
+    assert result.data.gospel.text.strip()
 
 
 @pytest.mark.asyncio
@@ -105,6 +104,6 @@ async def test_fixture_backed_malformed_reference_displayed(agent_available):
         {"occasion": "mass", "date": "2099-12-29"},
     )
     reply = extract_reply(data)
-    result = ReadingsResult(**reply)
+    result = ReadingsErrorContract.model_validate(reply)
     assert result.status == "error"
     assert result.error or result.message
