@@ -51,6 +51,15 @@ def test_resolve_rejects_blank_as_incomplete() -> None:
         resolve_basic_auth_credentials("  ", DISPOSABLE_PASS)
 
 
+def test_resolve_preserves_padded_credential_bytes() -> None:
+    """Configured padding is significant; strip only to reject whitespace-only."""
+    padded_user = " a2a-test "
+    padded_pass = " padded-secret "
+    user, password = resolve_basic_auth_credentials(padded_user, padded_pass)
+    assert user == padded_user
+    assert password == padded_pass
+
+
 def test_resolve_accepts_complete_pair() -> None:
     user, password = resolve_basic_auth_credentials(DISPOSABLE_USER, DISPOSABLE_PASS)
     assert user == DISPOSABLE_USER
@@ -162,3 +171,26 @@ def test_matching_credentials_allow_agent_card() -> None:
         headers=_auth_header(DISPOSABLE_USER, DISPOSABLE_PASS),
     )
     assert resp.status_code == 200
+
+
+def test_padded_credentials_exact_header_succeeds_trimmed_fails() -> None:
+    """Production transport must send exact bytes; trimmed password must 401."""
+    padded_user = " a2a-test "
+    padded_pass = " padded-secret "
+    server = A2AServer(
+        handler=_handler,
+        name="auth_test",
+        basic_auth_username=padded_user,
+        basic_auth_password=padded_pass,
+    )
+    client = TestClient(server.create_fastapi_app())
+    ok = client.get(
+        "/.well-known/agent-card.json",
+        headers=_auth_header(padded_user, padded_pass),
+    )
+    assert ok.status_code == 200
+    trimmed = client.get(
+        "/.well-known/agent-card.json",
+        headers=_auth_header(padded_user.strip(), padded_pass.strip()),
+    )
+    assert trimmed.status_code == 401

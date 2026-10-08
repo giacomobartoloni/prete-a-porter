@@ -38,9 +38,16 @@ def _load_env():
                 os.environ[key] = value
 
 
+def _nonblank_credential(value: str | None) -> str | None:
+    """Return exact credential bytes, or None when absent/whitespace-only."""
+    if value is None or not value.strip():
+        return None
+    return value
+
+
 def _ensure_complete_a2a_test_credentials() -> None:
-    user = (os.environ.get("A2A_BASIC_AUTH_USERNAME") or "").strip()
-    password = (os.environ.get("A2A_BASIC_AUTH_PASSWORD") or "").strip()
+    user = _nonblank_credential(os.environ.get("A2A_BASIC_AUTH_USERNAME"))
+    password = _nonblank_credential(os.environ.get("A2A_BASIC_AUTH_PASSWORD"))
     if user and password:
         return
     if user or password:
@@ -56,8 +63,8 @@ _ensure_complete_a2a_test_credentials()
 
 def a2a_auth_headers() -> dict[str, str]:
     """HTTP Basic Auth headers matching the required A2A credential pair."""
-    user = (os.environ.get("A2A_BASIC_AUTH_USERNAME") or "").strip()
-    password = (os.environ.get("A2A_BASIC_AUTH_PASSWORD") or "").strip()
+    user = _nonblank_credential(os.environ.get("A2A_BASIC_AUTH_USERNAME"))
+    password = _nonblank_credential(os.environ.get("A2A_BASIC_AUTH_PASSWORD"))
     if not user or not password:
         return {}
     token = base64.b64encode(f"{user}:{password}".encode()).decode()

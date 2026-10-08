@@ -51,14 +51,19 @@ def resolve_basic_auth_credentials(
     resolved_password = (
         password if password is not None else os.environ.get("A2A_BASIC_AUTH_PASSWORD")
     )
-    user = (resolved_user or "").strip()
-    pwd = (resolved_password or "").strip()
+    # Preserve exact credential bytes. Strip only to reject whitespace-only values.
+    user = resolved_user if resolved_user is not None and resolved_user.strip() else None
+    pwd = (
+        resolved_password
+        if resolved_password is not None and resolved_password.strip()
+        else None
+    )
 
     if allow_unauthenticated is None:
         allow_unauthenticated = _env_flag("A2A_ALLOW_UNAUTHENTICATED")
 
-    has_user = bool(user)
-    has_password = bool(pwd)
+    has_user = user is not None
+    has_password = pwd is not None
     if has_user != has_password:
         raise ValueError(
             "A2A Basic Auth partial credential pair is not allowed; "
