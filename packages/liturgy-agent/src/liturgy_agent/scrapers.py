@@ -208,12 +208,32 @@ class EvangelizeScraper:
                 raise ScraperError(
                     f"Malformed upstream book schema/shape for {date_str}"
                 )
-            reference_displayed = r.get("reference_displayed") or ""
+            reference_displayed = r.get("reference_displayed")
+            if reference_displayed is None:
+                reference_displayed = ""
+            elif not isinstance(reference_displayed, str):
+                raise ScraperError(
+                    f"Malformed upstream reference_displayed schema/shape for {date_str}"
+                )
+            reading_code = r.get("reading_code")
+            if reading_code is None:
+                reading_code = ""
+            elif not isinstance(reading_code, str):
+                raise ScraperError(
+                    f"Malformed upstream reading_code schema/shape for {date_str}"
+                )
+            title = r.get("title")
+            if title is None:
+                title = book_title
+            elif not isinstance(title, str):
+                raise ScraperError(
+                    f"Malformed upstream title schema/shape for {date_str}"
+                )
             reference = f"{book_title} {reference_displayed}".strip()
             return {
                 "reference": reference,
-                "reading_code": r.get("reading_code") or "",
-                "title": r.get("title") or book_title,
+                "reading_code": reading_code,
+                "title": title or book_title,
                 "text": _strip_markers(r.get("text") if isinstance(r.get("text"), str) else ""),
                 "audio_url": r.get("audio_url"),
             }

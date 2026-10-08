@@ -186,3 +186,62 @@ async def test_handler_malformed_upstream_returns_error_without_cache(tmp_path) 
 
     assert result["status"] == "error"
     assert agent.cache.get("2026-05-19", "mass") is None
+
+
+def test_parse_rejects_non_string_reference_displayed() -> None:
+    """Dict/non-string reference_displayed must not be f-string interpolated."""
+    scraper = _scraper()
+    readings = _complete_readings()
+    readings[0] = {
+        **readings[0],
+        "reference_displayed": {"bad": "shape"},
+    }
+    with pytest.raises(ScraperError, match="reference_displayed|schema|shape"):
+        scraper._parse_daily_gospel_api(
+            {"data": {"liturgic_title": "t", "readings": readings}},
+            "2026-05-19",
+        )
+
+
+@pytest.mark.asyncio
+async def test_handler_malformed_reference_displayed_no_cache(tmp_path) -> None:
+    """Real handler path: bad reference_displayed → controlled error, no cache row."""
+    db = str(tmp_path / "cache.db")
+    agent = LiturgyAgent(llm=MagicMock(), cache_db_path=db)
+    handler = LiturgyAgentHandler.__new__(LiturgyAgentHandler)
+    handler.llm = MagicMock()
+    handler.graph = MagicMock()
+
+    bad_payload = _payload()
+    bad_payload["data"]["readings"][0]["reference_displayed"] = {"bad": "shape"}
+
+    async def fake_fetch(date):
+        # Simulate fetch_liturgical_data raising after parse failure.
+        raise ScraperError(
+            f"Malformed upstream reference_displayed schema/shape for {date.strftime('%Y-%m-%d')}"
+        )
+
+    with patch("liturgy_agent.agent.LiturgyAgent", return_value=agent):
+        import liturgy_agent.scrapers as scrapers_mod
+
+        with patch.object(
+            scrapers_mod,
+            "fetch_liturgical_data",
+            new=AsyncMock(side_effect=fake_fetch),
+        ):
+            result = await handler._handle_get_readings(
+                {"occasion": "mass", "date": "2026-05-19"}
+            )
+
+    assert result["status"] == "error"
+    assert agent.cache.get("2026-05-19", "mass") is None
+
+
+@pytest.mark.asyncio
+async def test_parse_via_fetch_path_rejects_object_reference_displayed() -> None:
+    """End-to-end parse of HTTP-shaped payload with object reference_displayed."""
+    scraper = _scraper()
+    readings = _complete_readings()
+    readings[2] = {**readings[2], "reference_displayed": ["9", "38-40"]}
+    with pytest.raises(ScraperError, match="reference_displayed|schema|shape"):
+        scraper._parse_daily_gospel_api(_payload(readings=readings), "2026-05-19")
