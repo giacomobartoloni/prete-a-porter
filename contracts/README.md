@@ -4,6 +4,18 @@ Consumer-driven contract tests for the A2A (Agent-to-Agent) JSON-RPC 2.0 API.
 Verifies that all agents comply with the protocol specification and produce
 responses that consumers expect.
 
+`tests/models.py` defines independent consumer request/result expectations;
+static tests compare declared schemas and validate examples, while required live
+checks validate daily Mass, ritual lectionary and all three Homily capabilities.
+The custom contract format remains in place; no producer state model is imported.
+
+The JSON-RPC endpoint is `/`; `/message:send` is the standard message binding.
+Custom handler exceptions currently return sanitized `-32603 Internal error`
+with `data.error_id`. Inside `message/send`, failures appear as sanitized agent
+reply text. Do not assume custom-handler `-32601/-32602` or domain-specific
+codes; [typed error mapping is tracked separately](https://github.com/giacomobartoloni/prete-a-porter/issues/7). Upstream Liturgy failures
+remain application replies with `status: error`.
+
 ## Test Layers
 
 The suite has four layers, each with different infrastructure requirements:

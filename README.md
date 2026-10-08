@@ -16,7 +16,7 @@ This project started as a way to force a conversation about architecture instead
 
 **An LLM abstraction that actually switches providers.** The factory picks the first available API key — Anthropic, Google, or OpenAI — and supports OpenAI-compatible endpoints (Fireworks, Groq, Ollama) without code changes. Swap providers by changing one environment variable.
 
-**Testing strategies for agentic systems.** Mock LLMs via `TEST_MODE`, checkpointer test doubles, Playwright browser tests for WebSocket auth, contract tests that start real agent servers and verify the protocol end to end.
+**Testing strategies for agentic systems.** Mock LLMs via `TEST_MODE`, checkpointer test doubles, Playwright browser tests for WebSocket auth, contract tests against explicitly started real agent processes that verify the protocol end to end.
 
 **Honest documentation.** Alongside the code, AGENTS.md does not just describe the system — it documents active bugs, trade-offs for every design decision (seven ADRs with rationale and cost), and links to a full code review report with 39 findings. The contract JSON files even document known unimplemented methods inline. If you are used to polished demo projects, this one leaves the scaffolding visible.
 
@@ -202,19 +202,23 @@ so both ingestion and retrieval use the same embedding function.
 
 ## Testing A2A Protocol
 
+Export the same complete `A2A_BASIC_AUTH_USERNAME` / `A2A_BASIC_AUTH_PASSWORD`
+pair used by the agents. `/health` is public; `/`, `/message:send`, task routes
+and the Agent Card require Basic Auth.
+
 ```bash
 # Ping liturgy agent
-curl -X POST http://localhost:8001/ \
+curl -u "$A2A_BASIC_AUTH_USERNAME:$A2A_BASIC_AUTH_PASSWORD" -X POST http://localhost:8001/ \
   -H "Content-Type: application/json" \
   -d '{"jsonrpc": "2.0", "id": "1", "method": "agent.ping", "params": {}}'
 
 # Ping homily agent
-curl -X POST http://localhost:8002/ \
+curl -u "$A2A_BASIC_AUTH_USERNAME:$A2A_BASIC_AUTH_PASSWORD" -X POST http://localhost:8002/ \
   -H "Content-Type: application/json" \
   -d '{"jsonrpc": "2.0", "id": "1", "method": "agent.ping", "params": {}}'
 
 # Get liturgical readings
-curl -X POST http://localhost:8001/ \
+curl -u "$A2A_BASIC_AUTH_USERNAME:$A2A_BASIC_AUTH_PASSWORD" -X POST http://localhost:8001/ \
   -H "Content-Type: application/json" \
   -d '{"jsonrpc": "2.0", "id": "1", "method": "liturgy_agent.get_readings", "params": {"occasion": "mass"}}'
 ```
@@ -233,6 +237,13 @@ docker compose up -d a2a-inspector
 
 Access at **http://localhost:8080**, then enter an agent URL
 (e.g., `http://liturgy-agent:8001`).
+
+Entering a URL alone does not authenticate the protected Agent Card or A2A
+routes. This repository does not configure or verify authenticated Inspector
+connections; use the authenticated curl examples above. An Inspector-compatible
+unauthenticated agent is a separate development/debug process with both
+credentials absent and `A2A_ALLOW_UNAUTHENTICATED=true`; keep the Compose agents
+protected.
 
 ## Local Development (without Docker)
 
