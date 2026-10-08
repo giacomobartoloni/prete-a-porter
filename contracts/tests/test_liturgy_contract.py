@@ -6,6 +6,7 @@ against the liturgy-agent-contract.json specification.
 """
 
 import json
+import os
 import pytest
 from pathlib import Path
 from typing import Any
@@ -18,8 +19,8 @@ from conftest import a2a_apost
 
 # Load contract specification
 CONTRACT_PATH = Path(__file__).parent.parent / "liturgy-agent-contract.json"
-AGENT_URL = "http://localhost:8001"
-AGENT_ENDPOINT = f"{AGENT_URL}/"
+AGENT_URL = os.environ.get("A2A_LITURGY_URL", "http://localhost:8001")
+AGENT_ENDPOINT = f"{AGENT_URL.rstrip('/')}/"
 
 
 def load_contract() -> dict:
@@ -78,7 +79,7 @@ def agent_available():
 def require_agent_available(agent_available):
     """Fail required live checks when the liturgy agent is unavailable."""
     if not agent_available:
-        pytest.fail("Liturgy agent not running on port 8001")
+        pytest.fail(f"Liturgy agent not running at {AGENT_URL}")
 
 
 async def make_message_send(cmd_method: str, cmd_params: dict | None = None) -> dict:

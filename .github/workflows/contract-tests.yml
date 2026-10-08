@@ -44,6 +44,18 @@ jobs:
         working-directory: contracts
         run: uv sync
 
+      - name: Start fixture Evangelizo upstream
+        run: |
+          python contracts/scripts/fixture_evangelizo_server.py --host 127.0.0.1 --port 18080 &
+          echo "FIXTURE_PID=$!" >> $GITHUB_ENV
+
+      - name: Wait for fixture upstream
+        run: |
+          python contracts/scripts/wait_for_health.py \
+            http://127.0.0.1:18080/health \
+            --attempts 30 \
+            --sleep 1
+
       - name: Start liturgy agent
         working-directory: packages/liturgy-agent
         run: |
@@ -52,6 +64,7 @@ jobs:
         env:
           TEST_MODE: true
           DATABASE_PATH: /tmp/liturgy_cache.db
+          EVANGELIZO_BASE_URL: http://127.0.0.1:18080
           A2A_BASIC_AUTH_USERNAME: a2a-test
           A2A_BASIC_AUTH_PASSWORD: a2a-test-secret
 
@@ -125,4 +138,7 @@ jobs:
           fi
           if [ -n "$CHAT_PID" ]; then
             kill $CHAT_PID 2>/dev/null || true
+          fi
+          if [ -n "$FIXTURE_PID" ]; then
+            kill $FIXTURE_PID 2>/dev/null || true
           fi

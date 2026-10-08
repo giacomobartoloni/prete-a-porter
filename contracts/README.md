@@ -11,7 +11,7 @@ The suite has four layers, each with different infrastructure requirements:
 | Layer | Files | Needs agents? | Needs Docker? | Tests run |
 |-------|-------|:---:|:---:|-----------|
 | **A. Contract definition** | `test_liturgy_contract.py::TestContractCompliance`, `test_homily_contract.py::TestHomilyContractDefinition` | No | No | Validates contract JSON files: required fields, method names, error codes, enum values |
-| **B. Live agent** | `test_liturgy_contract.py::TestLiturgyAgentContract`, `test_homily_contract.py::TestHomilyAgentContract` | Yes (ports 8001/8002) | No | Sends `message/send` requests, validates reply against Pydantic models. Skips if agent unreachable |
+| **B. Live agent** | `test_liturgy_contract.py::TestLiturgyAgentContract`, `test_homily_contract.py::TestHomilyAgentContract`, `test_liturgy_fixture_backed.py` | Yes (ports 8001/8002) | No | Sends `message/send` requests, validates reply against Pydantic models. Required daily Mass checks use a fixture Evangelizo upstream (`EVANGELIZO_BASE_URL`); live upstream/LLM checks need `PRETE_RUN_OPTIONAL_LIVE=1` |
 | **C. E2E** | `test_liturgy_agent_e2e.py`, `test_homily_agent_e2e.py`, `test_chat_orchestrator_e2e.py`, `test_scenarios_e2e.py` | Yes (ports 8000-8002) | No (explicit start) | Raw JSON-RPC POSTs + WebSocket flows. Start the test stack yourself; fixtures never manage Compose |
 | **D. Protocol unit** | `packages/a2a-protocol/tests/` | No | No | Mock-handler unit tests of the A2A server, transport, and LLM factory |
 
@@ -61,6 +61,10 @@ uv run pytest tests/test_liturgy_contract.py::TestContractCompliance \
 # --- Layer A+D: All static + protocol unit tests (no agents needed) ---
 cd contracts && uv run pytest tests/test_liturgy_contract.py tests/test_homily_contract.py -v
 cd packages/a2a-protocol && uv run pytest -v
+
+# --- Fixture upstream for required daily Mass integration (no real Evangelizo) ---
+python contracts/scripts/fixture_evangelizo_server.py --port 18080 &
+# Start liturgy-agent with EVANGELIZO_BASE_URL=http://127.0.0.1:18080
 
 # --- Layer B+C: start agents explicitly, then run (fixtures never compose up/down) ---
 docker compose up -d --build liturgy-agent homily-agent chat-orchestrator

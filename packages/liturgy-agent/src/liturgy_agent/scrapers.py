@@ -10,6 +10,7 @@ degradation to lectionary data when web services are unavailable.
 
 import asyncio
 import logging
+import os
 from datetime import datetime, timedelta
 from typing import Optional
 import re
@@ -89,7 +90,10 @@ class EvangelizeScraper:
     RETRY_DELAY = 2  # seconds
     
     def __init__(self):
-        """Initialize the Evangelizo scraper."""
+        """Initialize the Evangelizo scraper.
+
+        ``EVANGELIZO_BASE_URL`` overrides the publication API base (fixtures/CI).
+        """
         if not HAS_HTTPX:
             raise ScraperError(
                 "httpx is required for Evangelizo scraper. "
@@ -97,6 +101,9 @@ class EvangelizeScraper:
             )
         if not HAS_BS4:
             logger.warning("beautifulsoup4 not available; HTML fallback disabled")
+        override = os.environ.get("EVANGELIZO_BASE_URL", "").strip()
+        if override:
+            self.API_BASE_URL = override.rstrip("/")
     
     async def fetch_daily_gospel(self, date: Optional[datetime] = None) -> dict:
         """

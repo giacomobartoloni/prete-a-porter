@@ -644,7 +644,7 @@ invoke the agent runtime.
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `DATABASE_PATH` | `/app/data/liturgy_cache.db` | Cache database (Docker path) |
-| `EVANGELIZO_BASE_URL` | `https://evangelizo.org` | Primary scraper source |
+| `EVANGELIZO_BASE_URL` | `https://publication.evangelizo.ws` | Publication API base for daily Mass readings (fixture/CI override) |
 | `CACHE_TTL_SECONDS` | `86400` | Cache freshness (24h) |
 | `AGENT_CONTRACT_PATH` | — | Path to A2A contract JSON |
 | `AGENT_URL` | — | Public URL for this agent |
