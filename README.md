@@ -236,21 +236,27 @@ Access at **http://localhost:8080**, then enter an agent URL
 
 ## Local Development (without Docker)
 
-Requires Python 3.12+ and [uv](https://docs.astral.sh/uv/):
+Requires Python 3.12+ and [uv](https://docs.astral.sh/uv/). Run each subshell
+below from the repository root. All A2A clients and servers need the same
+complete credential pair:
 
 ```bash
-# Install dependencies for a package
-cd packages/chat-orchestrator
-uv sync
+export A2A_BASIC_AUTH_USERNAME=a2a-dev
+export A2A_BASIC_AUTH_PASSWORD='replace-with-local-secret'
+(cd packages/chat-orchestrator && uv sync --extra dev)
 
 # Run tests
-cd packages/liturgy-agent
-uv run pytest
+(cd packages/liturgy-agent && uv sync --extra dev && uv run pytest)
 
 # Run an agent directly
-cd packages/homily-agent
-uv run python -m homily_agent.main --port 8002
+(cd packages/homily-agent && uv sync && uv run python -m homily_agent.main --port 8002)
 ```
+
+Missing or partial A2A credentials fail server startup. For development/debug
+only, an explicit `A2A_ALLOW_UNAUTHENTICATED=true` enables unauthenticated
+execution when both credentials are absent; partial pairs still fail.
+For a complete isolated test stack with no external provider or upstream,
+follow the [all-host fixture contract workflow](contracts/README.md#deterministic-fixture-backed-integration-all-host-processes).
 
 ## Troubleshooting
 

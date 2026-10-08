@@ -230,8 +230,8 @@ degrade with a one-time warning (`anonymous` user, fresh thread id).
 return `504` on expiry, streams emit an in-band `timeout` error before `[DONE]`.
 
 The `/ws/*` path and the Next.js frontend remain until the OpenWebUI cutover is
-verified end to end; see `AgentWorklog` migration plan P6. The WebSocket message
-loop is **not** bounded by `CHAT_REQUEST_TIMEOUT_SECONDS`.
+verified end to end; see `AgentWorklog` migration plan P6. Each WebSocket turn
+uses `application.run_chat` and is bounded by `CHAT_REQUEST_TIMEOUT_SECONDS`.
 
 ### Architecture
 
@@ -265,10 +265,8 @@ graph, which holds no server-side conversation state.
 
 ### Known Issues
 
-- The WebSocket message loop has no timeout on `graph.ainvoke()` — a stuck agent
-  invocation hangs the socket permanently. The `/v1/*` path is bounded by
-  `CHAT_REQUEST_TIMEOUT_SECONDS` (2026-09-18); the legacy loop is not, and retires
-  with the frontend.
+- Both HTTP and legacy WebSocket execution use the shared application timeout.
+  WebSocket timeout errors retain the error-frame contract and allow later turns.
 
 ---
 
@@ -320,6 +318,9 @@ Format Response (A2A JSON-RPC 2.0)
 | Lectionary JSON | `lectionaries/*.json` | Pre-loaded ritual readings (marriage, baptism, funeral) |
 
 ### Calendar / colour inference (bounded)
+
+Sunday Mass requires a complete second reading; weekday Mass may omit it.
+Marriage, baptism and funeral readings retain their ritual-specific selection.
 
 Season and liturgical colour are inferred from the upstream `liturgic_title`
 string (keyword matching) plus a small set of explicit feast exceptions
@@ -695,8 +696,7 @@ cd packages/prete-chat && uv run pytest -v
 cd contracts && uv run pytest tests/test_liturgy_contract.py::TestContractCompliance \
                tests/test_homily_contract.py::TestHomilyContractDefinition -v
 
-# --- Contract tests (start agents explicitly first; fixtures never manage Compose) ---
-docker compose up -d --build liturgy-agent homily-agent chat-orchestrator
+# --- Deterministic live contracts: use the all-host fixture workflow in contracts/README.md ---
 cd contracts && uv run pytest tests/ -v
 
 # --- Compatibility: --no-docker is accepted and is a no-op ---
@@ -709,11 +709,10 @@ cd packages/liturgy-agent && uv run python -m pytest --cov=src/liturgy_agent tes
 cd packages/a2a-protocol && uv run pytest tests/test_transport_routes.py -v
 ```
 
-> **Note:** Contract live/E2E tests require running agents. Start them via
-> `docker compose up -d --build liturgy-agent homily-agent chat-orchestrator`
-> before the suite. `contracts/tests/conftest.py` never starts, stops, or
-> deletes the shared Compose stack. See
-> [`contracts/README.md`](contracts/README.md) for env requirements.
+> **Note:** Contract live/E2E tests require explicitly started agents and a
+> deterministic upstream fixture. Follow the all-host workflow in
+> [`contracts/README.md`](contracts/README.md) for ports, credentials and cleanup.
+> `contracts/tests/conftest.py` never manages the shared Compose stack.
 
 ### Test Categories
 
@@ -721,7 +720,7 @@ cd packages/a2a-protocol && uv run pytest tests/test_transport_routes.py -v
 |------|-------|----------|-------|
 | Unit | Individual modules, isolated | `packages/*/tests/` | Fast, no external dependencies, uses mocks |
 | Contract definition | Static JSON contract validation | `contracts/tests/test_*_contract.py` | No agents needed; validates fields, methods, error codes |
-| Live agent | A2A message/send against running agent | `contracts/tests/test_*_contract.py` | Requires agents on ports 8001/8002; skips if unreachable |
+| Live agent | A2A message/send against running agent | `contracts/tests/test_*_contract.py` | Required services/capabilities fail if unavailable; only real upstream checks are opt-in |
 | E2E | Full user → chat → agent flows | `contracts/tests/test_*_e2e.py` | Requires an explicitly started test stack; fixtures never manage Compose |
 
 ### CI
@@ -748,11 +747,11 @@ reference.
 | 7 | Important | Vatican scraper fetched static URL regardless of date | `liturgy-agent/scrapers.py` | **Resolved** (2026-05-19): dead code removed |
 | 9 | Important | Bible abbreviations inconsistent: liturgy uses `"Gn"`, homily uses `"Gen"` | `agent.py:259` vs `bible-parser.py:34` | Active |
 | 10 | Cleanup | `langchain-fireworks` removed — Fireworks now uses `ChatOpenAI` | `llm.py` | **Resolved** (2026-05-26) |
-| 11 | Important | `_format_node` calls `format_response()` but discards return value | `homily-agent/graph.py:128-133` | Active — same pattern as #5 |
+| 11 | Important | `_format_node` does not persist successful `formatted_text` | `homily-agent/graph.py` | **Partially Resolved** (2026-10-08): errors propagate; successful formatted text remains unused |
 | 12 | Important | `_chunk_text` never terminates if `overlap >= chunk_size` | `homily-agent/rag/retrieval.py:258` | Active |
-| 13 | Important | `LiturgicalReading(**data)` raises unhandled Pydantic `ValidationError` on bad scraped data | `liturgy-agent/agent.py:487` | Active |
-| 14 | Minor | `datetime.utcnow()` deprecated in Python 3.12 | `liturgy-agent/cache.py:94` | Active |
-| 15 | Important | Homily generation/refinement fails when the model retypes the readings payload with `occasion: "sunday"`: `LiturgicalReading.occasion` only accepts `mass|marriage|baptism|funeral`, and the tool error is handed back to the LLM as text (observed twice in the Chainlit walkthrough, codes `5865a0d1`/`ee41a6a9`/`ca35fde1`) | `homily-agent/main.py:112` | Active |
+| 13 | Important | Raw Pydantic conversion of liturgical dictionaries | `liturgy-agent/agent.py:agent_node` | **Partially Resolved** (2026-10-08): daily upstream shapes/completeness use controlled `ScraperError`, poisoned cache rows invalidate; legacy graph conversion remains |
+| 14 | Minor | `datetime.utcnow()` deprecated in Python 3.12 | `liturgy-agent/cache.py` | **Resolved** (2026-10-08): cache uses `datetime.now(timezone.utc)` |
+| 15 | Important | Noncanonical occasions in model-built homily requests | `chat-orchestrator/tools.py` | **Resolved** (2026-10-08): sunday/weekday/daily normalize to mass; explicit conflicting nested occasions are rejected |
 
 ### Technical Risks
 
@@ -761,7 +760,7 @@ reference.
 | LLM provider API outage | All agents stop responding | Graceful degradation: cached readings still served, homily generation fails |
 | ChromaDB corruption | RAG returns empty results | `reset_collection()` method available; periodic re-indexing |
 | WebSocket connection leak | Orphaned connections consume resources | Heartbeat mechanism not yet implemented (see code review report) |
-| Graph execution timeout | Request hangs indefinitely | `/v1` requests are bounded by `CHAT_REQUEST_TIMEOUT_SECONDS` (504 or in-band timeout error); the transitional WebSocket loop remains unbounded |
+| Graph execution timeout | Slow or stuck invocation | Shared `application.run_chat` bounds HTTP/legacy WebSocket turns with `CHAT_REQUEST_TIMEOUT_SECONDS`; adapters return their existing timeout/error frames |
 
 ### Non-Architectural Issues
 
@@ -774,8 +773,8 @@ Issues affecting frontend, Docker, E2E, or infrastructure are tracked in the
 | Frontend | No WebSocket heartbeat/ping mechanism |
 | Frontend | `prose-liturgy` Tailwind class does nothing |
 | Docker | Hardcoded filesystem path in `contracts/pyproject.toml` |
-| E2E | 401 Unauthorized (Basic Auth credentials not sent by test helpers) |
-| E2E | Docker health check timeout (120s insufficient) |
+| E2E | Required A2A calls use matching Basic Auth helpers; deterministic authenticated contracts run in CI |
+| E2E | Services start explicitly; bounded `wait_for_health.py` fails on readiness exhaustion; pytest never tears down Compose |
 
 ---
 

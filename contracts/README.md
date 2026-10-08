@@ -176,20 +176,11 @@ The following variables must be set for live/E2E tests:
 ## CI
 
 Contract tests run on push/PR to `main` via `.github/workflows/contract-tests.yml`.
-The workflow installs all packages, starts liturgy + homily agents with mock LLM,
-waits for health, then runs `uv run pytest tests/ -v --junit-xml=test-results.xml`.
+The workflow installs all packages, starts the fixture upstream and all three
+services with mock LLM, waits for health, then runs the complete contract suite.
 
-## Test Count Summary
-
-| File | Tests | Layer | What it covers |
-|------|-------|-------|----------------|
-| `test_liturgy_contract.py` | 9 | A+B | Contract definition (5) + live agent ping/readings/lectionary (4) |
-| `test_homily_contract.py` | 9 | A+B | Contract definition (2) + live agent ping/generate/refine/tone (5) + error handling (2) |
-| `test_liturgy_agent_e2e.py` | 10 | C | Ping, readings (happy + errors), lectionary, cache hit |
-| `test_homily_agent_e2e.py` | 10 | C | Ping, generate (all occasions), refine, adjust tone, errors |
-| `test_chat_orchestrator_e2e.py` | 4 | C | Health, WebSocket chat, multi-message, homily flow |
-| `test_scenarios_e2e.py` | 3 | C | Liturgy→homily full flow, wedding flow, error recovery |
-| **Total** | **45** | | |
+Collect the current test inventory with `uv run pytest tests/ --collect-only -q`
+from `contracts/`.
 
 ## Related
 
