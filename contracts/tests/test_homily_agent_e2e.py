@@ -102,7 +102,9 @@ class TestHomilyAgentErrors:
         })
         assert response.status_code == 200
         error = response.json()["error"]
-        assert "occasion conflict" in error["message"].lower()
+        assert error["code"] == -32603
+        assert error["message"] == "Internal error"
+        assert error["data"]["error_id"]
 
     def test_unknown_method(self, homily_url):
         """Unknown method returns error."""
