@@ -58,17 +58,8 @@ cd contracts
 uv run pytest tests/test_liturgy_contract.py::TestContractCompliance \
                tests/test_homily_contract.py::TestHomilyContractDefinition -v
 
-# --- Layer A+D: All static + protocol unit tests (no agents needed) ---
-cd contracts && uv run pytest tests/test_liturgy_contract.py tests/test_homily_contract.py -v
+# --- Layer D: Protocol unit tests (no agents needed) ---
 cd packages/a2a-protocol && uv run pytest -v
-
-# --- Fixture upstream for required daily Mass integration (no real Evangelizo) ---
-python contracts/scripts/fixture_evangelizo_server.py --port 18080 &
-# Start liturgy-agent with EVANGELIZO_BASE_URL=http://127.0.0.1:18080
-
-# --- Layer B+C: start agents explicitly, then run (fixtures never compose up/down) ---
-docker compose up -d --build liturgy-agent homily-agent chat-orchestrator
-cd contracts && uv run pytest tests/ -v
 
 # --- Compatibility: --no-docker is accepted and is a no-op (same behaviour) ---
 cd contracts && uv run pytest tests/ -v --no-docker
@@ -80,6 +71,71 @@ cd contracts && uv run pytest tests/test_homily_contract.py -v
 # --- Skip slow tests ---
 cd contracts && uv run pytest tests/ -v -m "not slow"
 ```
+
+### Deterministic fixture-backed integration (all host processes)
+
+Run from the repository root in Bash. Prepare the package environments first:
+
+```bash
+for package in a2a-protocol liturgy-agent homily-agent chat-orchestrator; do
+  (cd "packages/$package" && uv sync --extra dev)
+done
+(cd contracts && uv sync)
+```
+
+The following block uses ports 18000–18002 and 18080; choose other free ports
+and update the URLs if they are already occupied. Every service and pytest runs
+on the host, so `127.0.0.1` refers to the same host. Use a fresh cache, matching
+disposable credentials, and `TEST_MODE=true`; no external LLM or Evangelizo is
+needed. The fixture supplies a second reading for Sundays.
+
+```bash
+export PYTHONDONTWRITEBYTECODE=1 TEST_MODE=true PRETE_RUN_OPTIONAL_LIVE=0
+export ANTHROPIC_API_KEY= GOOGLE_API_KEY= OPENAI_API_KEY=
+export A2A_BASIC_AUTH_USERNAME=a2a-test A2A_BASIC_AUTH_PASSWORD=a2a-test-secret
+export WS_JWT_SECRET=test-jwt-secret-for-local-contracts-32-bytes
+export ORCHESTRATOR_API_KEY=test-orchestrator-key
+export RATE_LIMIT_MESSAGES_PER_HOUR=3 RATE_LIMIT_MESSAGES_PER_DAY=100
+test_run_dir=$(mktemp -d)
+export DATABASE_PATH="$test_run_dir/liturgy.db"
+export RATE_LIMIT_DB_PATH="$test_run_dir/quota.db"
+export EVANGELIZO_BASE_URL=http://127.0.0.1:18080
+export A2A_LITURGY_URL=http://127.0.0.1:18001
+export A2A_HOMILY_URL=http://127.0.0.1:18002
+export CHAT_ORCHESTRATOR_URL=http://127.0.0.1:18000
+
+packages/chat-orchestrator/.venv/bin/python contracts/scripts/fixture_evangelizo_server.py --port 18080 > "$test_run_dir/fixture.log" 2>&1 &
+fixture_pid=$!
+packages/liturgy-agent/.venv/bin/python -m liturgy_agent.main --host 127.0.0.1 --port 18001 > "$test_run_dir/liturgy.log" 2>&1 &
+liturgy_pid=$!
+packages/homily-agent/.venv/bin/python -m homily_agent.main --host 127.0.0.1 --port 18002 > "$test_run_dir/homily.log" 2>&1 &
+homily_pid=$!
+packages/chat-orchestrator/.venv/bin/python -m uvicorn chat_orchestrator.main:app --host 127.0.0.1 --port 18000 > "$test_run_dir/chat.log" 2>&1 &
+chat_pid=$!
+trap 'kill "$fixture_pid" "$liturgy_pid" "$homily_pid" "$chat_pid" 2>/dev/null || true; wait 2>/dev/null || true' EXIT
+
+packages/chat-orchestrator/.venv/bin/python contracts/scripts/wait_for_health.py \
+  "$EVANGELIZO_BASE_URL/health" "$A2A_LITURGY_URL/health" \
+  "$A2A_HOMILY_URL/health" "$CHAT_ORCHESTRATOR_URL/health" --attempts 30 --sleep 1 &&
+  contracts/.venv/bin/python -m pytest contracts/tests/ -v --no-docker
+```
+
+Run the block in its own shell/script so the EXIT trap cleans up only its owned
+processes. Logs remain in `test_run_dir`. Pytest never starts or stops services;
+`--no-docker` is a compatibility no-op. Do not combine this host-fixture URL
+with containerized agents.
+
+### Optional real upstream check
+
+Start a separate agent using the normal publication API, then explicitly opt in:
+
+```bash
+cd contracts
+PRETE_RUN_OPTIONAL_LIVE=1 uv run pytest \
+  tests/test_liturgy_contract.py::TestLiturgyAgentContract::test_get_readings_format -v
+```
+
+Keep this external-source check separate from the deterministic fixture suite.
 
 ## Environment Requirements
 
@@ -101,10 +157,9 @@ The following variables must be set for live/E2E tests:
 > pair. Contract helpers send matching `Authorization: Basic` headers via
 > `a2a_auth_headers()` / `a2a_post()`. When unset, conftest installs the disposable
 > pair `a2a-test` / `a2a-test-secret` for the test process only — start agents with
-> the same values:
+> the same values, as in the all-host workflow above:
 > ```bash
-> A2A_BASIC_AUTH_USERNAME=a2a-test A2A_BASIC_AUTH_PASSWORD=a2a-test-secret \
->   docker compose up -d --build liturgy-agent homily-agent chat-orchestrator
+> export A2A_BASIC_AUTH_USERNAME=a2a-test A2A_BASIC_AUTH_PASSWORD=a2a-test-secret
 > ```
 
 ## Fixtures (conftest.py)

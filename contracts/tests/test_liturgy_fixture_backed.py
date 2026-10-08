@@ -53,6 +53,18 @@ async def test_fixture_backed_get_readings_happy(agent_available):
 
 
 @pytest.mark.asyncio
+async def test_fixture_backed_sunday_requires_complete_second(agent_available):
+    require_agent_available(agent_available)
+    data = await make_message_send(
+        "liturgy_agent.get_readings", {"occasion": "mass", "date": "2026-10-11"}
+    )
+    result = ReadingsResult(**extract_reply(data))
+    assert result.status == "success"
+    assert result.data["second_reading"]["reference"]
+    assert result.data["second_reading"]["text"]
+
+
+@pytest.mark.asyncio
 async def test_fixture_backed_get_readings_upstream_error(agent_available):
     """Fixture date 2099-12-31 forces upstream failure → controlled error status."""
     require_agent_available(agent_available)

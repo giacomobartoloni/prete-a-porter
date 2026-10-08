@@ -15,6 +15,7 @@ from __future__ import annotations
 import argparse
 import json
 import re
+from datetime import date
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 
@@ -46,6 +47,13 @@ COMPLETE_READINGS = [
 
 def _payload_for(date_str: str) -> dict:
     readings = [dict(r) for r in COMPLETE_READINGS]
+    if date.fromisoformat(date_str).weekday() == 6:
+        readings.insert(1, {
+            "book_type": "reading",
+            "book": {"full_title": "Seconda lettera a Timoteo"},
+            "reference_displayed": "2,8-13",
+            "text": "Fixture Sunday second reading.",
+        })
     if date_str == "2099-12-30":
         readings = [r for r in readings if r["book_type"] != "gospel"]
     elif date_str == "2099-12-29":

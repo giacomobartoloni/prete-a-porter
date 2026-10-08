@@ -54,6 +54,14 @@ async def test_fixture_server_happy_path(fixture_base_url):
 
 
 @pytest.mark.asyncio
+async def test_fixture_server_sunday_has_complete_second(fixture_base_url):
+    result = await fetch_liturgical_data(datetime(2026, 10, 11))
+    second = result["sources"]["evangelizo.ws"].get("second_reading", {})
+    assert second.get("reference")
+    assert second.get("text")
+
+
+@pytest.mark.asyncio
 async def test_fixture_server_error_date(fixture_base_url):
     with pytest.raises(ScraperError):
         await fetch_liturgical_data(datetime(2099, 12, 31))
