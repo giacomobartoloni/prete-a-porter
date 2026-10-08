@@ -3,7 +3,8 @@ Contract tests for Homily Agent A2A methods.
 
 Tests verify that the homily agent complies with the standard A2A protocol
 specification defined in contracts/homily-agent-contract.json.
-Tests will be skipped if the homily agent is not running on port 8002.
+Required generate/refine/adjust checks use local fixture data / TEST_MODE and
+fail when the agent is unavailable (not optional_live).
 """
 
 import json
@@ -15,7 +16,7 @@ from typing import Any, Dict, Optional
 import httpx
 import pytest
 
-from conftest import MOCK_LITURGICAL_DATA, a2a_auth_headers, require_optional_live
+from conftest import MOCK_LITURGICAL_DATA, a2a_auth_headers
 
 
 # Configuration from contract
@@ -53,7 +54,7 @@ def is_agent_available() -> bool:
 def require_homily_agent() -> None:
     """Fail required live checks when the homily agent is unavailable."""
     if not is_agent_available():
-        pytest.fail("Homily agent not running on port 8002")
+        pytest.fail(f"Homily agent not running at {HOMILY_AGENT_URL}")
 
 
 @pytest.fixture
@@ -130,19 +131,14 @@ class TestHomilyAgentContract:
             assert len(msg["parts"]) > 0
 
     # -------------------------------------------------------------------------
-    # homily.generate / refine / tone — optional live LLM checks
+    # homily.generate / refine / tone — mandatory with local fixture / TEST_MODE
     # -------------------------------------------------------------------------
 
-    @pytest.mark.optional_live
     def test_generate_format(self, http_client: httpx.Client):
         """Verify homily.generate returns correct format via message/send."""
-        require_optional_live()
         require_homily_agent()
         data = make_message_send("homily.generate", {
-            "liturgical_data": {
-                "first_reading": {"reference": "Genesis 12:1-4a", "text": "The Lord said to Abram...", "type": "First"},
-                "gospel": {"reference": "John 3:1-17", "text": "Jesus said to Nicodemus...", "type": "Gospel"}
-            },
+            "liturgical_data": MOCK_LITURGICAL_DATA,
             "occasion": "mass",
         }, client=http_client)
 
@@ -161,10 +157,8 @@ class TestHomilyAgentContract:
             assert section in homily, f"Missing section: {section}"
             assert homily[section]["content"]
 
-    @pytest.mark.optional_live
     def test_refine_format(self, http_client: httpx.Client):
         """Verify homily.refine returns correct format via message/send."""
-        require_optional_live()
         require_homily_agent()
         data = make_message_send("homily.refine", {
             "liturgical_data": MOCK_LITURGICAL_DATA,
@@ -188,10 +182,8 @@ class TestHomilyAgentContract:
             assert section in homily, f"Missing section: {section}"
             assert homily[section]["content"]
 
-    @pytest.mark.optional_live
     def test_adjust_tone_format(self, http_client: httpx.Client):
         """Verify homily.adjust_tone returns correct format via message/send."""
-        require_optional_live()
         require_homily_agent()
         data = make_message_send("homily.adjust_tone", {
             "liturgical_data": MOCK_LITURGICAL_DATA,

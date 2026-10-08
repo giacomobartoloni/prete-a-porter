@@ -65,3 +65,34 @@ async def test_fixture_backed_get_readings_upstream_error(agent_available):
     result = ReadingsResult(**reply)
     assert result.status == "error"
     assert result.error or result.message
+
+
+@pytest.mark.asyncio
+async def test_fixture_backed_current_date_readings(agent_available):
+    """Omitting date must resolve to today against the fixture upstream."""
+    require_agent_available(agent_available)
+
+    data = await make_message_send(
+        "liturgy_agent.get_readings",
+        {"occasion": "mass"},
+    )
+    reply = extract_reply(data)
+    result = ReadingsResult(**reply)
+    assert result.status == "success"
+    assert result.data is not None
+    assert result.data.get("gospel", {}).get("text")
+
+
+@pytest.mark.asyncio
+async def test_fixture_backed_malformed_reference_displayed(agent_available):
+    """Fixture date 2099-12-29 forces object reference_displayed → controlled error."""
+    require_agent_available(agent_available)
+
+    data = await make_message_send(
+        "liturgy_agent.get_readings",
+        {"occasion": "mass", "date": "2099-12-29"},
+    )
+    reply = extract_reply(data)
+    result = ReadingsResult(**reply)
+    assert result.status == "error"
+    assert result.error or result.message

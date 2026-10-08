@@ -5,6 +5,7 @@ Serves GET /{lang}/days/{YYYY-MM-DD} with a complete Mass payload by default.
 Special dates:
   2099-12-31 → HTTP 503 (upstream failure)
   2099-12-30 → JSON missing gospel (schema/incomplete error path)
+  2099-12-29 → object reference_displayed (malformed shape)
 
 No third-party dependencies (stdlib only).
 """
@@ -44,9 +45,11 @@ COMPLETE_READINGS = [
 
 
 def _payload_for(date_str: str) -> dict:
-    readings = list(COMPLETE_READINGS)
+    readings = [dict(r) for r in COMPLETE_READINGS]
     if date_str == "2099-12-30":
         readings = [r for r in readings if r["book_type"] != "gospel"]
+    elif date_str == "2099-12-29":
+        readings[0] = {**readings[0], "reference_displayed": {"bad": "shape"}}
     return {
         "data": {
             "liturgic_title": "Mercoledi della VII settimana del Tempo Ordinario",

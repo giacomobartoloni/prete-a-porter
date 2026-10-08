@@ -11,7 +11,7 @@ The suite has four layers, each with different infrastructure requirements:
 | Layer | Files | Needs agents? | Needs Docker? | Tests run |
 |-------|-------|:---:|:---:|-----------|
 | **A. Contract definition** | `test_liturgy_contract.py::TestContractCompliance`, `test_homily_contract.py::TestHomilyContractDefinition` | No | No | Validates contract JSON files: required fields, method names, error codes, enum values |
-| **B. Live agent** | `test_liturgy_contract.py::TestLiturgyAgentContract`, `test_homily_contract.py::TestHomilyAgentContract`, `test_liturgy_fixture_backed.py` | Yes (ports 8001/8002) | No | Sends `message/send` requests, validates reply against Pydantic models. Required daily Mass checks use a fixture Evangelizo upstream (`EVANGELIZO_BASE_URL`); live upstream/LLM checks need `PRETE_RUN_OPTIONAL_LIVE=1` |
+| **B. Live agent** | `test_liturgy_contract.py::TestLiturgyAgentContract`, `test_homily_contract.py::TestHomilyAgentContract`, `test_liturgy_fixture_backed.py` | Yes (env URLs) | No | Sends `message/send` requests, validates reply against Pydantic models. Required daily Mass checks use a fixture Evangelizo upstream (`EVANGELIZO_BASE_URL`); homily generate/refine/adjust are mandatory with local fixture/`TEST_MODE` data. Live upstream/LLM checks need `PRETE_RUN_OPTIONAL_LIVE=1` |
 | **C. E2E** | `test_liturgy_agent_e2e.py`, `test_homily_agent_e2e.py`, `test_chat_orchestrator_e2e.py`, `test_scenarios_e2e.py` | Yes (ports 8000-8002) | No (explicit start) | Raw JSON-RPC POSTs + WebSocket flows. Start the test stack yourself; fixtures never manage Compose |
 | **D. Protocol unit** | `packages/a2a-protocol/tests/` | No | No | Mock-handler unit tests of the A2A server, transport, and LLM factory |
 
@@ -91,9 +91,11 @@ The following variables must be set for live/E2E tests:
 | `WS_JWT_SECRET` | WebSocket tests (chat orchestrator) | `.env` (auto-loaded by conftest) |
 | `A2A_BASIC_AUTH_USERNAME` | A2A HTTP requests | Required complete pair (Compose rejects unset/empty) |
 | `A2A_BASIC_AUTH_PASSWORD` | A2A HTTP requests | Required complete pair matching the agents under test |
-| `OPENAI_API_KEY` | Homily generation (LLM) | `.env` — needed for `homily.generate`/`refine`/`adjust_tone` |
 | `A2A_LITURGY_URL` | Liturgy agent URL | Defaults to `http://localhost:8001` |
 | `A2A_HOMILY_URL` | Homily agent URL | Defaults to `http://localhost:8002` |
+| `CHAT_ORCHESTRATOR_URL` | Chat orchestrator URL | Defaults to `http://localhost:8000` (alias `A2A_CHAT_URL`) |
+| `PRETE_RUN_OPTIONAL_LIVE` | Optional live Evangelizo/LLM checks | Unset by default; set `1` only for live upstream |
+| `TEST_MODE` | Deterministic agent responses | CI/local fixture stack; required generate/refine/adjust use local data |
 
 > **Note on Basic Auth:** Normal A2A HTTP execution requires a complete credential
 > pair. Contract helpers send matching `Authorization: Basic` headers via
@@ -111,9 +113,9 @@ The following variables must be set for live/E2E tests:
 |---------|-------|-------------|
 | `docker_compose` | session | No-op availability marker; never starts/stops Compose (`--no-docker` kept for compatibility) |
 | `_ensure_docker` | module | Depends on `docker_compose` |
-| `liturgy_url` | function | Returns `http://localhost:8001` |
-| `homily_url` | function | Returns `http://localhost:8002` |
-| `chat_url` | function | Returns `http://localhost:8000` |
+| `liturgy_url` | function | `A2A_LITURGY_URL` or `http://localhost:8001` |
+| `homily_url` | function | `A2A_HOMILY_URL` or `http://localhost:8002` |
+| `chat_url` | function | `CHAT_ORCHESTRATOR_URL` / `A2A_CHAT_URL` or `http://localhost:8000` |
 | `MOCK_LITURGICAL_DATA` | — | Module-level dict with sample readings for homily tests |
 
 ## CI

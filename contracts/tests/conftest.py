@@ -136,17 +136,20 @@ def _ensure_docker(docker_compose):
 
 @pytest.fixture
 def liturgy_url(_ensure_docker):
-    return "http://localhost:8001"
+    return os.environ.get("A2A_LITURGY_URL", "http://localhost:8001").rstrip("/")
 
 
 @pytest.fixture
 def homily_url(_ensure_docker):
-    return "http://localhost:8002"
+    return os.environ.get("A2A_HOMILY_URL", "http://localhost:8002").rstrip("/")
 
 
 @pytest.fixture
 def chat_url(_ensure_docker):
-    return "http://localhost:8000"
+    return os.environ.get(
+        "CHAT_ORCHESTRATOR_URL",
+        os.environ.get("A2A_CHAT_URL", "http://localhost:8000"),
+    ).rstrip("/")
 
 
 MOCK_LITURGICAL_DATA = {

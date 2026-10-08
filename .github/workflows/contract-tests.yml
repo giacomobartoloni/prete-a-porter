@@ -113,6 +113,7 @@ jobs:
         env:
           A2A_LITURGY_URL: http://localhost:8001
           A2A_HOMILY_URL: http://localhost:8002
+          CHAT_ORCHESTRATOR_URL: http://localhost:8000
           A2A_BASIC_AUTH_USERNAME: a2a-test
           A2A_BASIC_AUTH_PASSWORD: a2a-test-secret
           WS_JWT_SECRET: test-jwt-secret-for-ci-32-bytes-minimum
