@@ -167,30 +167,54 @@ class EvangelizeScraper:
             data.liturgy     – liturgical title/description
             data.commentary  – daily commentary with author
         """
+        if not isinstance(payload, dict):
+            raise ScraperError(
+                f"Malformed upstream payload schema/shape for {date_str}: expected object"
+            )
         data = payload.get("data", payload)
+        if not isinstance(data, dict):
+            raise ScraperError(
+                f"Malformed upstream data schema/shape for {date_str}: expected object"
+            )
         readings = data.get("readings", [])
+        if not isinstance(readings, list):
+            raise ScraperError(
+                f"Malformed upstream readings schema/shape for {date_str}: expected list"
+            )
 
         # Strip inline verse markers such as [[Ex 17,3]]
         def _strip_markers(text: str) -> str:
             return re.sub(r'\[\[.*?\]\]', '', text or "").strip()
 
         def _parse_entry(r: dict) -> dict:
+            if not isinstance(r, dict):
+                raise ScraperError(
+                    f"Malformed upstream reading schema/shape for {date_str}"
+                )
             book = r.get("book") or {}
+            if not isinstance(book, dict):
+                raise ScraperError(
+                    f"Malformed upstream book schema/shape for {date_str}"
+                )
             book_title = book.get("full_title") or ""
+            if book_title is not None and not isinstance(book_title, str):
+                raise ScraperError(
+                    f"Malformed upstream book schema/shape for {date_str}"
+                )
             reference_displayed = r.get("reference_displayed") or ""
             reference = f"{book_title} {reference_displayed}".strip()
             return {
                 "reference": reference,
                 "reading_code": r.get("reading_code") or "",
                 "title": r.get("title") or book_title,
-                "text": _strip_markers(r.get("text")),
+                "text": _strip_markers(r.get("text") if isinstance(r.get("text"), str) else ""),
                 "audio_url": r.get("audio_url"),
             }
 
         # Separate readings by book_type, preserving document order
-        plain_readings = [r for r in readings if r.get("book_type") == "reading"]
-        psalm_entry   = next((r for r in readings if r.get("book_type") == "psalm"), None)
-        gospel_entry  = next((r for r in readings if r.get("book_type") == "gospel"), None)
+        plain_readings = [r for r in readings if isinstance(r, dict) and r.get("book_type") == "reading"]
+        psalm_entry   = next((r for r in readings if isinstance(r, dict) and r.get("book_type") == "psalm"), None)
+        gospel_entry  = next((r for r in readings if isinstance(r, dict) and r.get("book_type") == "gospel"), None)
 
         if not gospel_entry:
             raise ScraperError(f"No gospel reading found for {date_str}")
@@ -216,19 +240,48 @@ class EvangelizeScraper:
                 )
 
         # Liturgical metadata
-        liturgy_block  = data.get("liturgy") or {}
-        liturgic_title = data.get("liturgic_title") or liturgy_block.get("title") or ""
+        liturgy_block = data.get("liturgy") or {}
+        if liturgy_block is not None and not isinstance(liturgy_block, dict):
+            raise ScraperError(
+                f"Malformed upstream liturgy metadata schema/shape for {date_str}"
+            )
+        raw_title = data.get("liturgic_title")
+        if raw_title is None:
+            raw_title = liturgy_block.get("title") if isinstance(liturgy_block, dict) else None
+        if raw_title is None:
+            liturgic_title = ""
+        elif not isinstance(raw_title, str):
+            raise ScraperError(
+                f"Malformed upstream liturgic_title schema/shape for {date_str}"
+            )
+        else:
+            liturgic_title = raw_title
         date_displayed = data.get("date_displayed") or ""
+        if date_displayed is not None and not isinstance(date_displayed, str):
+            raise ScraperError(
+                f"Malformed upstream date_displayed schema/shape for {date_str}"
+            )
 
         # Commentary
         commentary_text   = ""
         commentary_author = ""
         commentary_source = ""
         commentary_data = data.get("commentary")
-        if commentary_data:
-            commentary_text   = _strip_markers(commentary_data.get("description"))
+        if commentary_data is not None:
+            if not isinstance(commentary_data, dict):
+                raise ScraperError(
+                    f"Malformed upstream commentary schema/shape for {date_str}"
+                )
+            description = commentary_data.get("description")
+            commentary_text = _strip_markers(
+                description if isinstance(description, str) else ""
+            )
             commentary_source = commentary_data.get("source") or ""
             author = commentary_data.get("author") or {}
+            if not isinstance(author, dict):
+                raise ScraperError(
+                    f"Malformed upstream commentary schema/shape for {date_str}"
+                )
             commentary_author = author.get("name") or ""
 
         result: dict = {
@@ -307,6 +360,11 @@ async def fetch_liturgical_data(
         source_name = result.get("source", "unknown")
         logger.info(f"[fetch_liturgical_data] Merged result from source: {source_name}")
         merged["sources"][source_name] = result
+
+    if not merged["sources"]:
+        raise ScraperError(
+            f"No liturgical data from any source for {date.strftime('%Y-%m-%d')}"
+        )
 
     logger.info(f"[fetch_liturgical_data] Returning merged result with sources: {list(merged['sources'].keys())}")
     return merged

@@ -385,6 +385,10 @@ class LiturgyAgent:
         Season/colour inference remains title-based and limited: unsupported
         feast metadata is not certified as an authoritative calendar.
         """
+        if not isinstance(liturgic_title, str):
+            raise ScraperError(
+                "Malformed upstream liturgic_title schema/shape for metadata inference"
+            )
         lower = liturgic_title.lower()
         for season, keywords in self._SEASON_KEYWORDS.items():
             if any(kw in lower for kw in keywords):
@@ -393,6 +397,10 @@ class LiturgyAgent:
 
     def infer_liturgical_color(self, season: str, liturgic_title: str) -> str:
         """Map season to colour, applying explicit supported feast exceptions."""
+        if not isinstance(liturgic_title, str):
+            raise ScraperError(
+                "Malformed upstream liturgic_title schema/shape for metadata inference"
+            )
         lower = liturgic_title.lower()
         for keywords, color in self._FEAST_COLOR_EXCEPTIONS:
             if any(kw in lower for kw in keywords):
@@ -429,13 +437,31 @@ class LiturgyAgent:
         Returns:
             LiturgicalReading object ready for caching
         """
+        if not isinstance(scraped, dict):
+            raise ScraperError("Malformed scraped payload schema/shape: expected object")
         sources = scraped.get("sources", {})
+        if not isinstance(sources, dict):
+            raise ScraperError("Malformed scraped sources schema/shape: expected object")
+        if not sources:
+            raise ScraperError("No liturgical data from any source")
         ev = sources.get("evangelizo.ws", {})
+        if not isinstance(ev, dict):
+            raise ScraperError("Malformed evangelizo.ws source schema/shape: expected object")
 
         def _reading(entry: dict, reading_type: str) -> Reading:
+            if not isinstance(entry, dict):
+                raise ScraperError(
+                    f"Malformed upstream reading schema/shape for {reading_type}"
+                )
+            ref = entry.get("reference", "")
+            text = entry.get("text", "")
+            if not isinstance(ref, str) or not isinstance(text, str):
+                raise ScraperError(
+                    f"Malformed upstream reading schema/shape for {reading_type}"
+                )
             return Reading(
-                reference=entry.get("reference", ""),
-                text=entry.get("text", ""),
+                reference=ref,
+                text=text,
                 type=reading_type,
             )
 
@@ -451,6 +477,8 @@ class LiturgyAgent:
 
         # Infer season and colour from liturgical title (title-based, limited).
         liturgic_title = ev.get("liturgic_title", "")
+        if liturgic_title is None:
+            liturgic_title = ""
         season = self._infer_season(liturgic_title)
         color = self.infer_liturgical_color(season, liturgic_title)
         year_cycle = self.liturgical_year_cycle(date.date())
