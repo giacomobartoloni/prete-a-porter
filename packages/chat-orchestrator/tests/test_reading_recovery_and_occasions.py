@@ -309,3 +309,134 @@ def test_required_readings_complete_requires_nonblank_string_refs():
     assert tools._required_readings_complete(mapped) is False
     mapped["gospel"]["text"] = "vangelo"
     assert tools._required_readings_complete(mapped) is True
+
+
+def _payload_with_nested_marriage(wrapper: str, conflict_shape: str) -> dict:
+    """Outer/method mass with an explicit nested marriage in the named shape."""
+    base = _weekday_complete()
+    if conflict_shape == "data_occasion":
+        base["occasion"] = "marriage"
+    elif conflict_shape == "readings_occasion":
+        base = {
+            "date": base["date"],
+            "occasion": "mass",
+            "metadata": base["metadata"],
+            "readings": {
+                "occasion": "marriage",
+                "first_reading": base["first_reading"],
+                "psalm": base["psalm"],
+                "gospel": base["gospel"],
+            },
+        }
+    else:
+        base["metadata"] = {**VALID_METADATA, "occasion": "marriage"}
+
+    if wrapper == "wrapped":
+        # Outer occasion=mass must not first-wins-mask data.occasion=marriage.
+        return {"occasion": "mass", "data": base}
+    # Direct: method=mass; nested marriage lives on body/readings/metadata.
+    if conflict_shape == "data_occasion":
+        return base  # body occasion=marriage conflicts with method mass
+    return base
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("wrapper", ["direct", "wrapped"])
+@pytest.mark.parametrize("tool_name", ["generation", "refinement"])
+@pytest.mark.parametrize(
+    "conflict_shape",
+    ["data_occasion", "readings_occasion", "metadata_occasion"],
+)
+async def test_all_explicit_occasions_validated_not_first_wins(
+    monkeypatch, wrapper, tool_name, conflict_shape
+):
+    """Every explicit occasion across outer/data/readings/metadata must be checked."""
+    payload = _payload_with_nested_marriage(wrapper, conflict_shape)
+
+    async def no_recovery(*args, **kwargs):
+        raise AssertionError("must not recover before occasion rejection")
+
+    monkeypatch.setattr(tools, "request_liturgical_data", no_recovery)
+
+    class _Boom:
+        async def __aenter__(self):
+            raise AssertionError("homily agent must not be called on occasion conflict")
+
+        async def __aexit__(self, *args):
+            return False
+
+    monkeypatch.setattr("a2a_protocol.a2a_client", lambda **kwargs: _Boom())
+
+    if tool_name == "generation":
+        result = await tools.request_homily_generation(payload, "mass")
+    else:
+        result = await tools.request_homily_refinement(
+            payload, "mass", existing_draft="draft"
+        )
+    assert "error" in result
+    err = result["error"].lower()
+    assert "conflict" in err or "marriage" in err or "occasion" in err
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("wrapper", ["direct", "wrapped"])
+@pytest.mark.parametrize("tool_name", ["generation", "refinement"])
+@pytest.mark.parametrize(
+    "bad_gospel",
+    [
+        {"reference": "", "text": "nonempty", "type": "Gospel"},
+        {"reference": {"bad": "shape"}, "text": "nonempty", "type": "Gospel"},
+    ],
+)
+async def test_invalid_present_reading_ref_rejects_without_substitution(
+    monkeypatch, wrapper, tool_name, bad_gospel
+):
+    """Present invalid refs must error — not drop-then-recover as absent."""
+    fresh = _weekday_complete()
+    recovery_calls = []
+
+    async def fake_request(occasion, date):
+        recovery_calls.append((occasion, date))
+        return {"data": fresh}
+
+    monkeypatch.setattr(tools, "request_liturgical_data", fake_request)
+
+    class _Boom:
+        async def __aenter__(self):
+            raise AssertionError("homily must not run on invalid-present reading")
+
+        async def __aexit__(self, *args):
+            return False
+
+    monkeypatch.setattr("a2a_protocol.a2a_client", lambda **kwargs: _Boom())
+
+    base = _weekday_complete()
+    base["gospel"] = bad_gospel
+    payload = {"data": base} if wrapper == "wrapped" else base
+
+    if tool_name == "generation":
+        result = await tools.request_homily_generation(payload, "mass")
+    else:
+        result = await tools.request_homily_refinement(
+            payload, "mass", existing_draft="draft"
+        )
+    assert "error" in result
+    # Must not silently adopt the fresh gospel via absent-key recovery.
+    assert "Mc 9,38-40" not in str(result.get("data", ""))
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("wrapper", ["direct", "wrapped"])
+async def test_valid_bare_string_reference_recovers_text(monkeypatch, wrapper):
+    async def fake_request(occasion, date):
+        return {"data": _weekday_complete()}
+
+    monkeypatch.setattr(tools, "request_liturgical_data", fake_request)
+    base = _weekday_complete()
+    base["gospel"] = "Mc 9,38-40"
+    payload = tools._map_liturgical_data({"data": base} if wrapper == "wrapped" else base)
+    assert payload["gospel"]["reference"] == "Mc 9,38-40"
+    assert payload["gospel"]["text"] == ""
+    mapped = await tools._with_full_reading_texts(payload, "mass")
+    assert mapped["gospel"]["text"] == "vangelo"
+    assert mapped["gospel"]["reference"] == "Mc 9,38-40"

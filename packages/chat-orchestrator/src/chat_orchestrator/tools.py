@@ -67,25 +67,28 @@ def canonicalize_occasion(value: Any) -> str:
 
 def resolve_request_occasion(
     method_occasion: Any,
+    *nested_occasions: Any,
     payload_occasion: Any = None,
     metadata_occasion: Any = None,
 ) -> str:
-    """Resolve method/payload/metadata occasions to one canonical value.
+    """Resolve method and every explicit nested occasion to one canonical value.
 
-    Absent nested values inherit the canonical method occasion. Explicit values
-    must agree after alias normalization.
+    Absent nested values inherit the canonical method occasion. Every explicit
+    value across outer/data/readings/metadata must agree after alias normalization.
     """
     canonical = canonicalize_occasion(method_occasion)
-    for label, raw in (
-        ("payload", payload_occasion),
-        ("metadata", metadata_occasion),
-    ):
+    values = list(nested_occasions)
+    if payload_occasion is not None:
+        values.append(payload_occasion)
+    if metadata_occasion is not None:
+        values.append(metadata_occasion)
+    for raw in values:
         if raw is None or (isinstance(raw, str) and not raw.strip()):
             continue
         nested = canonicalize_occasion(raw)
         if nested != canonical:
             raise ValueError(
-                f"liturgical occasion conflict: method={canonical} {label}={nested}"
+                f"liturgical occasion conflict: method={canonical} nested={nested}"
             )
     return canonical
 
@@ -120,16 +123,15 @@ def _required_readings_complete(mapped: dict) -> bool:
     return True
 
 
-def _explicit_occasions_from_payload(liturgical_data: Any) -> tuple[Any, Any]:
-    """Collect explicit payload/metadata occasions before incomplete metadata is dropped.
+def _explicit_occasions_from_payload(liturgical_data: Any) -> list[Any]:
+    """Collect every explicit occasion across outer/data/readings/metadata.
 
-    Walks outer, wrapped ``data``, and nested ``readings`` shapes. The first
-    nonblank payload-level occasion and first nonblank metadata occasion win.
+    Incomplete metadata may later be dropped; occasions must still be validated
+    against the method. No first-wins masking of nested conflicts.
     """
-    payload_occasion: Any = None
-    metadata_occasion: Any = None
+    found: list[Any] = []
     if not isinstance(liturgical_data, dict):
-        return payload_occasion, metadata_occasion
+        return found
 
     stack: list[Any] = [liturgical_data]
     seen: set[int] = set()
@@ -142,48 +144,54 @@ def _explicit_occasions_from_payload(liturgical_data: Any) -> tuple[Any, Any]:
             continue
         seen.add(node_id)
         raw = node.get("occasion")
-        if payload_occasion is None and raw is not None and (
-            not isinstance(raw, str) or raw.strip()
-        ):
-            payload_occasion = raw
+        if raw is not None and (not isinstance(raw, str) or raw.strip()):
+            found.append(raw)
         meta = node.get("metadata")
         if isinstance(meta, dict):
             meta_occ = meta.get("occasion")
-            if metadata_occasion is None and meta_occ is not None and (
+            if meta_occ is not None and (
                 not isinstance(meta_occ, str) or meta_occ.strip()
             ):
-                metadata_occasion = meta_occ
+                found.append(meta_occ)
         for child_key in ("data", "readings"):
             child = node.get(child_key)
             if isinstance(child, dict):
                 stack.append(child)
-    return payload_occasion, metadata_occasion
+    return found
 
 
 def _normalize_reading(reading: Any, reading_type: str) -> Optional[dict]:
     """Coerce a reading into the {reference, text, type} shape the homily agent validates.
 
-    Models routinely compact readings to bare reference strings (or drop fields) when they
-    build the JSON they pass to generate_homily, and the homily agent's LiturgicalReading
-    rejects anything that is not a Reading object.
+    ``None`` means genuinely absent (eligible for recovery). Present-but-invalid
+    shapes (blank/non-string reference, non-object non-string values) raise
+    ``ValueError`` so callers reject instead of silently dropping the key.
+    Bare nonblank strings remain valid reference-only input for text recovery.
     """
     if reading is None:
         return None
 
     if isinstance(reading, str):
+        if not reading.strip():
+            raise ValueError(f"invalid {reading_type}: blank reference")
         return {"reference": reading, "text": "", "type": reading_type}
 
     if not isinstance(reading, dict):
-        logger.warning(f"Unsupported {reading_type} payload: {type(reading).__name__}")
-        return None
+        raise ValueError(
+            f"invalid {reading_type}: unsupported type {type(reading).__name__}"
+        )
 
     normalized = dict(reading)
     normalized.setdefault("type", reading_type)
     normalized.setdefault("text", "")
-    reference = normalized.get("reference") or normalized.get("ref")
-    if not isinstance(reference, str):
-        logger.warning(f"{reading_type} without a usable reference: {reading}")
-        return None
+    if "reference" in normalized:
+        reference = normalized["reference"]
+    elif "ref" in normalized:
+        reference = normalized["ref"]
+    else:
+        raise ValueError(f"invalid {reading_type}: missing reference")
+    if not isinstance(reference, str) or not reference.strip():
+        raise ValueError(f"invalid {reading_type}: bad reference")
     normalized["reference"] = reference
     return normalized
 
@@ -645,20 +653,18 @@ async def request_homily_generation(
     from a2a_protocol import a2a_client
 
     config = _get_homily_transport_config()
-    raw_payload_occasion, raw_metadata_occasion = _explicit_occasions_from_payload(
-        liturgical_data or {}
-    )
+    raw_occasions = _explicit_occasions_from_payload(liturgical_data or {})
     try:
-        occasion = resolve_request_occasion(
-            occasion,
-            raw_payload_occasion,
-            raw_metadata_occasion,
-        )
+        occasion = resolve_request_occasion(occasion, *raw_occasions)
     except ValueError as e:
         logger.error("Invalid liturgical occasion for homily generation: %s", e)
         return {"error": str(e), "occasion": occasion}
 
-    mapped = _map_liturgical_data(liturgical_data or {})
+    try:
+        mapped = _map_liturgical_data(liturgical_data or {})
+    except ValueError as e:
+        logger.error("Invalid liturgical reading for homily generation: %s", e)
+        return {"error": str(e), "occasion": occasion}
     logger.info(f"Requesting homily generation: occasion={occasion}")
 
     mapped["occasion"] = occasion
@@ -711,20 +717,18 @@ async def request_homily_refinement(
         logger.error("Missing liturgical data for homily refinement")
         return {"error": "Dati liturgici incompleti. Richiedi prima le letture del giorno.", "occasion": occasion}
 
-    raw_payload_occasion, raw_metadata_occasion = _explicit_occasions_from_payload(
-        liturgical_data
-    )
+    raw_occasions = _explicit_occasions_from_payload(liturgical_data)
     try:
-        occasion = resolve_request_occasion(
-            occasion,
-            raw_payload_occasion,
-            raw_metadata_occasion,
-        )
+        occasion = resolve_request_occasion(occasion, *raw_occasions)
     except ValueError as e:
         logger.error("Invalid liturgical occasion for homily refinement: %s", e)
         return {"error": str(e), "occasion": occasion}
 
-    mapped = _map_liturgical_data(liturgical_data)
+    try:
+        mapped = _map_liturgical_data(liturgical_data)
+    except ValueError as e:
+        logger.error("Invalid liturgical reading for homily refinement: %s", e)
+        return {"error": str(e), "occasion": occasion}
     logger.info(f"Requesting homily refinement: occasion={occasion}")
 
     mapped["occasion"] = occasion
