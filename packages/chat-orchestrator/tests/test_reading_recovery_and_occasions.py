@@ -78,6 +78,50 @@ async def test_sunday_second_recovery_before_homily(monkeypatch, tool_name, reco
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("tool_name", ["generation", "refinement"])
+@pytest.mark.parametrize("kind,date,recover", [
+    ("Sunday", "2026-10-10", True),
+    ("Sunday", "2026-10-10", False),
+    ("Weekday", "2026-10-11", False),
+])
+async def test_partial_metadata_preserves_day_kind(monkeypatch, tool_name, kind, date, recover):
+    payload = deepcopy(_weekday_complete())
+    payload["date"] = date
+    payload["metadata"] = {"sunday_or_weekday": kind}
+    fetched = deepcopy(_weekday_complete())
+    if recover:
+        fetched["second_reading"] = {"reference": "2 Tm 2,8-13", "text": "second", "type": "Second"}
+    recovered, dispatched = [], []
+
+    async def fetch(*args):
+        recovered.append(args)
+        return {"data": fetched}
+
+    class Client:
+        async def call_agent_method(self, **kwargs):
+            dispatched.append(kwargs["params"]["liturgical_data"])
+            return {"status": "success"}
+
+    @asynccontextmanager
+    async def client(**kwargs):
+        yield Client()
+
+    monkeypatch.setattr(tools, "request_liturgical_data", fetch)
+    monkeypatch.setattr("a2a_protocol.a2a_client", client)
+    wrapper = getattr(tools, f"request_homily_{tool_name}")
+    result = await wrapper({"data": payload}, "mass")
+    assert bool(recovered) == (kind == "Sunday")
+    if kind == "Sunday" and not recover:
+        assert "error" in result
+        assert dispatched == []
+    else:
+        assert result["status"] == "success"
+        assert bool(dispatched[0].get("second_reading")) == recover
+        assert "_sunday_or_weekday" not in dispatched[0]
+    assert payload["metadata"] == {"sunday_or_weekday": kind}
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("occasion", ["mass", "marriage", "baptism", "funeral"])
 async def test_sunday_date_fallback_only_requires_second_for_mass(monkeypatch, occasion):
     payload = _weekday_complete()
@@ -94,6 +138,16 @@ async def test_sunday_date_fallback_only_requires_second_for_mass(monkeypatch, o
     mapped = await tools._with_full_reading_texts(tools._map_liturgical_data(payload), occasion)
     assert bool(calls) == (occasion == "mass")
     assert tools._required_readings_complete(mapped, occasion) == (occasion != "mass")
+
+
+@pytest.mark.parametrize("kind", [[], {}])
+def test_invalid_partial_day_kind_falls_back_to_date(kind):
+    payload = deepcopy(_weekday_complete())
+    payload["date"] = "2026-10-11"
+    payload["metadata"] = {"sunday_or_weekday": kind}
+    mapped = tools._map_liturgical_data(payload)
+    assert "metadata" not in mapped
+    assert not tools._required_readings_complete(mapped, "mass")
 
 
 @pytest.mark.asyncio

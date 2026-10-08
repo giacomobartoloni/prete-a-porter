@@ -120,7 +120,9 @@ def _required_reading_keys(mapped: dict, occasion: str) -> tuple[str, ...]:
     if occasion != "mass":
         return _REQUIRED_READING_KEYS
     metadata = mapped.get("metadata")
-    kind = metadata.get("sunday_or_weekday") if isinstance(metadata, dict) else None
+    kind = mapped.get("_sunday_or_weekday")
+    if kind not in _WEEKDAY_KINDS:
+        kind = metadata.get("sunday_or_weekday") if isinstance(metadata, dict) else None
     if kind in _WEEKDAY_KINDS:
         sunday = kind == "Sunday"
     else:
@@ -269,6 +271,11 @@ def _map_liturgical_data(liturgical_data: dict) -> dict:
     if metadata:
         mapped["metadata"] = metadata
     else:
+        raw_metadata = mapped.get("metadata")
+        raw_kind = raw_metadata.get("sunday_or_weekday") if isinstance(raw_metadata, dict) else None
+        if isinstance(raw_kind, str) and raw_kind in _WEEKDAY_KINDS:
+            # Retain valid day context even when other metadata fields are unusable.
+            mapped["_sunday_or_weekday"] = raw_kind
         mapped.pop("metadata", None)
 
     return mapped
@@ -695,6 +702,7 @@ async def request_homily_generation(
         )
         return {"error": "Dati liturgici incompleti. Richiedi prima le letture del giorno.", "occasion": occasion}
 
+    mapped.pop("_sunday_or_weekday", None)
     async with a2a_client(**config) as client:
         result = await client.call_agent_method(
             method="homily.generate",
@@ -756,6 +764,7 @@ async def request_homily_refinement(
         logger.error("Incomplete liturgical data for homily refinement")
         return {"error": "Dati liturgici incompleti. Richiedi prima le letture del giorno.", "occasion": occasion}
 
+    mapped.pop("_sunday_or_weekday", None)
     async with a2a_client(**config) as client:
         result = await client.call_agent_method(
             method="homily.refine",
