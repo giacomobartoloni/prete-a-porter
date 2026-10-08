@@ -8,7 +8,6 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from fastapi import WebSocketDisconnect
-from langchain_core.messages import AIMessage, HumanMessage
 
 from chat_orchestrator.application import websocket_history_to_messages
 from chat_orchestrator.routes import _message_loop
@@ -56,7 +55,11 @@ def test_hostile_system_role_is_coerced_to_user():
 
 
 @pytest.mark.asyncio
-async def test_message_loop_preserves_assistant_history():
+async def test_message_loop_calls_run_chat_with_safe_history(monkeypatch):
+    """Adapter must use application.run_chat — not a duplicated graph invoke."""
+    run_chat = AsyncMock(return_value="ok")
+    monkeypatch.setattr("chat_orchestrator.routes.run_chat", run_chat)
+
     ws = _ws(
         [
             json.dumps(
@@ -70,38 +73,33 @@ async def test_message_loop_preserves_assistant_history():
             )
         ]
     )
-    graph = MagicMock(spec=["ainvoke"])
-    graph.ainvoke = AsyncMock(return_value={"messages": [AIMessage(content="ok")]})
 
     try:
-        await _message_loop(ws, graph, "session-1", "user-1", "corr-1")
+        await _message_loop(ws, "session-1", "user-1", "corr-1")
     except WebSocketDisconnect:
         pass
 
-    msgs = graph.ainvoke.call_args[0][0]["messages"]
-    assert isinstance(msgs[0], HumanMessage)
-    assert isinstance(msgs[1], AIMessage)
-    assert isinstance(msgs[2], HumanMessage)
+    run_chat.assert_awaited_once()
+    msgs = run_chat.await_args.args[0]
+    assert [m.role for m in msgs] == ["user", "assistant", "user"]
     assert [m.content for m in msgs] == ["q", "a", "again"]
+    assert run_chat.await_args.kwargs.get("session_id") == "session-1"
+    sent = ws.send_json.await_args.args[0]
+    assert sent["type"] == "message"
+    assert sent["content"] == "ok"
 
 
 @pytest.mark.asyncio
 async def test_timeout_emits_error_frame_and_allows_later_turn(monkeypatch):
-    monkeypatch.setenv("CHAT_REQUEST_TIMEOUT_SECONDS", "0.05")
-    # Reload timeout getter cache if any
-    import chat_orchestrator.config as cfg
-
-    if hasattr(cfg, "_cached_timeout"):
-        cfg._cached_timeout = None
-
     call_count = {"n": 0}
 
-    async def slow_then_fast(state, config=None):
+    async def slow_then_fast(messages, *, session_id=None, preferences=None):
         call_count["n"] += 1
         if call_count["n"] == 1:
-            await asyncio.sleep(1.0)
-            return {"messages": [AIMessage(content="late")]}
-        return {"messages": [AIMessage(content="second")]}
+            raise TimeoutError()
+        return "second"
+
+    monkeypatch.setattr("chat_orchestrator.routes.run_chat", slow_then_fast)
 
     ws = _ws(
         [
@@ -109,11 +107,9 @@ async def test_timeout_emits_error_frame_and_allows_later_turn(monkeypatch):
             json.dumps({"text": "second", "history": []}),
         ]
     )
-    graph = MagicMock(spec=["ainvoke"])
-    graph.ainvoke = AsyncMock(side_effect=slow_then_fast)
 
     try:
-        await _message_loop(ws, graph, "session-1", "user-1", "corr-1")
+        await _message_loop(ws, "session-1", "user-1", "corr-1")
     except WebSocketDisconnect:
         pass
 
@@ -132,20 +128,41 @@ async def test_quota_still_blocks_before_invocation(monkeypatch):
 
     rate_mod._rate_limiter = None
 
+    run_chat = AsyncMock(return_value="ok")
+    monkeypatch.setattr("chat_orchestrator.routes.run_chat", run_chat)
+
     ws = _ws(
         [
             json.dumps({"text": "one", "history": []}),
             json.dumps({"text": "two", "history": []}),
         ]
     )
-    graph = MagicMock(spec=["ainvoke"])
-    graph.ainvoke = AsyncMock(return_value={"messages": [AIMessage(content="ok")]})
 
     try:
-        await _message_loop(ws, graph, "session-1", "user-quota", "corr-1")
+        await _message_loop(ws, "session-1", "user-quota", "corr-1")
     except WebSocketDisconnect:
         pass
 
-    assert graph.ainvoke.await_count == 1
+    assert run_chat.await_count == 1
     codes = [c.args[0].get("code") for c in ws.send_json.await_args_list]
     assert "rate_limit_exceeded" in codes
+
+
+@pytest.mark.asyncio
+async def test_injected_runtime_error_emits_error_frame_not_skip(monkeypatch):
+    """Runtime failures must surface as error frames (E2E must fail, not skip)."""
+
+    async def boom(*args, **kwargs):
+        raise RuntimeError("injected runtime failure")
+
+    monkeypatch.setattr("chat_orchestrator.routes.run_chat", boom)
+    ws = _ws([json.dumps({"text": "hi", "history": []})])
+
+    try:
+        await _message_loop(ws, "session-1", "user-err", "corr-1")
+    except WebSocketDisconnect:
+        pass
+
+    sent = ws.send_json.await_args.args[0]
+    assert sent["type"] == "error"
+    assert sent["error"]["code"] == "MESSAGE_PROCESSING_ERROR"
