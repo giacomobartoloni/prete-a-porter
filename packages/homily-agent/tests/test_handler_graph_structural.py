@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from typing import Optional
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -115,3 +115,39 @@ async def test_handler_accepts_complete_homily_envelope(intent):
     assert "homily" in result
     assert result["homily"]["introduction"]["content"] == "intro"
     assert result["sources"] == ["stub-source"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("intent", ["generate", "refine", "adjust"])
+@pytest.mark.parametrize("data_occasion", ["mass", "marriage"])
+async def test_handler_rejects_explicit_occasion_conflicts(intent, data_occasion):
+    handler = _handler_with(_complete_homily())
+    handler.graph = MagicMock(ainvoke=AsyncMock(side_effect=AssertionError("conflict reached graph")))
+    data = _liturgical_data()
+    data["occasion"] = data_occasion
+    # Metadata remains mass: both request/data and request/metadata conflicts matter.
+    with pytest.raises(ValueError, match="occasion.*conflict"):
+        await handler._invoke_graph({"occasion": "marriage", "liturgical_data": data}, intent)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("intent", ["generate", "refine", "adjust"])
+@pytest.mark.parametrize("nested", ["consistent", "omitted", "metadata_occasion_omitted"])
+async def test_handler_accepts_coherent_or_absent_ritual_occasions(intent, nested):
+    homily = _complete_homily()
+    homily.occasion = "marriage"
+    handler = _handler_with(homily)
+    data = _liturgical_data()
+    if nested == "omitted":
+        data.pop("occasion")
+        data.pop("metadata")
+    else:
+        data["occasion"] = "marriage"
+        if nested == "metadata_occasion_omitted":
+            data["metadata"].pop("occasion")
+        else:
+            data["metadata"]["occasion"] = "marriage"
+    result = await handler._invoke_graph(
+        {"occasion": "marriage", "liturgical_data": data, "existing_draft": "draft"}, intent
+    )
+    assert result["homily"]["occasion"] == "marriage"

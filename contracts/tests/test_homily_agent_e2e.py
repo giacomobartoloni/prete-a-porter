@@ -3,6 +3,7 @@ End-to-end tests for the Homily Agent A2A protocol.
 """
 
 import pytest
+from copy import deepcopy
 
 from conftest import MOCK_LITURGICAL_DATA, a2a_post
 
@@ -40,7 +41,8 @@ class TestHomilyAgentGenerate:
     @pytest.mark.parametrize("occasion", ["mass", "marriage", "baptism", "funeral"])
     def test_generate_homily_occasions(self, homily_url, occasion):
         """homily.generate works for all occasion types."""
-        data = dict(MOCK_LITURGICAL_DATA, occasion=occasion)
+        data = deepcopy(MOCK_LITURGICAL_DATA)
+        data["occasion"] = data["metadata"]["occasion"] = occasion
         resp = a2a_post(homily_url + "/", json={
             "jsonrpc": "2.0", "id": "3", "method": "homily.generate",
             "params": {"liturgical_data": data, "occasion": occasion},
@@ -90,6 +92,18 @@ class TestHomilyAgentAdjustTone:
 
 
 class TestHomilyAgentErrors:
+    @pytest.mark.parametrize("data_occasion", ["mass", "marriage"])
+    def test_explicit_occasion_conflict(self, homily_url, data_occasion):
+        data = deepcopy(MOCK_LITURGICAL_DATA)
+        data["occasion"] = data_occasion
+        response = a2a_post(homily_url + "/", json={
+            "jsonrpc": "2.0", "id": "conflict", "method": "homily.generate",
+            "params": {"occasion": "marriage", "liturgical_data": data},
+        })
+        assert response.status_code == 200
+        error = response.json()["error"]
+        assert "occasion conflict" in error["message"].lower()
+
     def test_unknown_method(self, homily_url):
         """Unknown method returns error."""
         resp = a2a_post(homily_url + "/", json={

@@ -3,6 +3,7 @@ Multi-step user scenario end-to-end tests.
 """
 
 import pytest
+from copy import deepcopy
 
 from conftest import MOCK_LITURGICAL_DATA, a2a_post
 
@@ -43,10 +44,12 @@ class TestFullFlow:
         lectionary_result = resp.json()["result"]
         assert "lectionary" in lectionary_result
 
+        readings = deepcopy(MOCK_LITURGICAL_DATA)
+        readings["occasion"] = readings["metadata"]["occasion"] = "marriage"
         resp = a2a_post(homily_url + "/", json={
             "jsonrpc": "2.0", "id": "2", "method": "homily.generate",
             "params": {
-                "liturgical_data": MOCK_LITURGICAL_DATA,
+                "liturgical_data": readings,
                 "occasion": "marriage",
                 "preferences": {"tone": "celebratory"},
             },
