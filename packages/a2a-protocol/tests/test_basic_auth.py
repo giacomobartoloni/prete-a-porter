@@ -9,10 +9,21 @@ import pytest
 from fastapi.testclient import TestClient
 
 from a2a_protocol.server import A2AServer, resolve_basic_auth_credentials
+from a2a_protocol.transport import HTTPTransport
 
 
 DISPOSABLE_USER = "a2a-test"
 DISPOSABLE_PASS = "a2a-test-secret"
+
+
+@pytest.mark.parametrize("username,password", [
+    ("user", None), (None, "secret"), ("   ", "secret"), ("user", "   "),
+])
+def test_transport_rejects_partial_resolved_auth(monkeypatch, username, password):
+    monkeypatch.delenv("A2A_BASIC_AUTH_USERNAME", raising=False)
+    monkeypatch.delenv("A2A_BASIC_AUTH_PASSWORD", raising=False)
+    with pytest.raises(ValueError, match="both|pair"):
+        HTTPTransport("http://localhost:1", auth_username=username, auth_password=password)
 
 
 async def _handler(method: str, params: dict) -> dict:

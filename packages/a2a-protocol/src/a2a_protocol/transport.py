@@ -133,6 +133,12 @@ class HTTPTransport(A2ATransport):
         self.retries = retries
         self._auth_username = auth_username or os.environ.get("A2A_BASIC_AUTH_USERNAME")
         self._auth_password = auth_password or os.environ.get("A2A_BASIC_AUTH_PASSWORD")
+        if self._auth_username is not None and not self._auth_username.strip():
+            self._auth_username = None
+        if self._auth_password is not None and not self._auth_password.strip():
+            self._auth_password = None
+        if bool(self._auth_username) != bool(self._auth_password):
+            raise ValueError("A2A Basic Auth requires both username and password")
         self._client: Optional[httpx.AsyncClient] = None
     
     def _basic_auth_header(self) -> Optional[Dict[str, str]]:
