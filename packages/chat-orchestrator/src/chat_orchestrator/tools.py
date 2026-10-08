@@ -90,8 +90,21 @@ def resolve_request_occasion(
     return canonical
 
 
+def _nonblank_string(value: Any) -> bool:
+    return isinstance(value, str) and bool(value.strip())
+
+
+def _reading_fields_complete(reading: Optional[dict]) -> bool:
+    """Require nonblank string reference and text."""
+    if not isinstance(reading, dict):
+        return False
+    return _nonblank_string(reading.get("reference")) and _nonblank_string(
+        reading.get("text")
+    )
+
+
 def _reading_text_missing(reading: Optional[dict]) -> bool:
-    return reading is not None and not (reading.get("text") or "").strip()
+    return reading is not None and not _reading_fields_complete(reading)
 
 
 def _references_match(selected: Optional[str], fetched: Optional[str]) -> bool:
@@ -102,10 +115,49 @@ def _references_match(selected: Optional[str], fetched: Optional[str]) -> bool:
 
 def _required_readings_complete(mapped: dict) -> bool:
     for key in _REQUIRED_READING_KEYS:
-        reading = mapped.get(key)
-        if not reading or _reading_text_missing(reading):
+        if not _reading_fields_complete(mapped.get(key)):
             return False
     return True
+
+
+def _explicit_occasions_from_payload(liturgical_data: Any) -> tuple[Any, Any]:
+    """Collect explicit payload/metadata occasions before incomplete metadata is dropped.
+
+    Walks outer, wrapped ``data``, and nested ``readings`` shapes. The first
+    nonblank payload-level occasion and first nonblank metadata occasion win.
+    """
+    payload_occasion: Any = None
+    metadata_occasion: Any = None
+    if not isinstance(liturgical_data, dict):
+        return payload_occasion, metadata_occasion
+
+    stack: list[Any] = [liturgical_data]
+    seen: set[int] = set()
+    while stack:
+        node = stack.pop()
+        if not isinstance(node, dict):
+            continue
+        node_id = id(node)
+        if node_id in seen:
+            continue
+        seen.add(node_id)
+        raw = node.get("occasion")
+        if payload_occasion is None and raw is not None and (
+            not isinstance(raw, str) or raw.strip()
+        ):
+            payload_occasion = raw
+        meta = node.get("metadata")
+        if isinstance(meta, dict):
+            meta_occ = meta.get("occasion")
+            if metadata_occasion is None and meta_occ is not None and (
+                not isinstance(meta_occ, str) or meta_occ.strip()
+            ):
+                metadata_occasion = meta_occ
+        for child_key in ("data", "readings"):
+            child = node.get(child_key)
+            if isinstance(child, dict):
+                stack.append(child)
+    return payload_occasion, metadata_occasion
 
 
 def _normalize_reading(reading: Any, reading_type: str) -> Optional[dict]:
@@ -200,15 +252,21 @@ def _map_liturgical_data(liturgical_data: dict) -> dict:
 
 
 async def _with_full_reading_texts(mapped: dict, occasion: str) -> dict:
-    """Recover missing text for present readings without substituting selections.
+    """Recover missing/absent required readings without substituting selections.
 
-    Absent optional readings (e.g. weekday second reading) stay absent. Complete
-    selections are preserved. A fetched text fills a blank only when its reference
-    matches the selected reference.
+    Absent required keys are filled from fresh data. Present incomplete readings
+    are filled only when the fetched reference matches. Absent optional readings
+    (e.g. weekday second reading) stay absent and are never invented. Complete
+    selections are preserved.
     """
-    incomplete_keys = [
-        key for key, _ in _READING_KEYS if _reading_text_missing(mapped.get(key))
-    ]
+    incomplete_keys: list[str] = []
+    for key, _ in _READING_KEYS:
+        reading = mapped.get(key)
+        if key in _REQUIRED_READING_KEYS:
+            if reading is None or not _reading_fields_complete(reading):
+                incomplete_keys.append(key)
+        elif _reading_text_missing(reading):
+            incomplete_keys.append(key)
     if not incomplete_keys or not mapped.get("date"):
         return mapped
 
@@ -222,9 +280,14 @@ async def _with_full_reading_texts(mapped: dict, occasion: str) -> dict:
 
     recovered: list[str] = []
     for key in incomplete_keys:
-        selected = mapped.get(key) or {}
+        selected = mapped.get(key)
         fetched = fresh.get(key)
-        if not fetched or not (fetched.get("text") or "").strip():
+        if not _reading_fields_complete(fetched):
+            continue
+        if selected is None:
+            # Absent required key: adopt the complete fetched reading.
+            mapped[key] = dict(fetched)
+            recovered.append(key)
             continue
         if not _references_match(selected.get("reference"), fetched.get("reference")):
             logger.warning(
@@ -236,6 +299,7 @@ async def _with_full_reading_texts(mapped: dict, occasion: str) -> dict:
             continue
         filled = dict(selected)
         filled["text"] = fetched["text"]
+        filled["reference"] = fetched["reference"]
         filled.setdefault("type", fetched.get("type"))
         mapped[key] = filled
         recovered.append(key)
@@ -581,19 +645,20 @@ async def request_homily_generation(
     from a2a_protocol import a2a_client
 
     config = _get_homily_transport_config()
-    mapped = _map_liturgical_data(liturgical_data or {})
+    raw_payload_occasion, raw_metadata_occasion = _explicit_occasions_from_payload(
+        liturgical_data or {}
+    )
     try:
         occasion = resolve_request_occasion(
             occasion,
-            mapped.get("occasion"),
-            (mapped.get("metadata") or {}).get("occasion")
-            if isinstance(mapped.get("metadata"), dict)
-            else None,
+            raw_payload_occasion,
+            raw_metadata_occasion,
         )
     except ValueError as e:
         logger.error("Invalid liturgical occasion for homily generation: %s", e)
         return {"error": str(e), "occasion": occasion}
 
+    mapped = _map_liturgical_data(liturgical_data or {})
     logger.info(f"Requesting homily generation: occasion={occasion}")
 
     mapped["occasion"] = occasion
@@ -646,19 +711,20 @@ async def request_homily_refinement(
         logger.error("Missing liturgical data for homily refinement")
         return {"error": "Dati liturgici incompleti. Richiedi prima le letture del giorno.", "occasion": occasion}
 
-    mapped = _map_liturgical_data(liturgical_data)
+    raw_payload_occasion, raw_metadata_occasion = _explicit_occasions_from_payload(
+        liturgical_data
+    )
     try:
         occasion = resolve_request_occasion(
             occasion,
-            mapped.get("occasion"),
-            (mapped.get("metadata") or {}).get("occasion")
-            if isinstance(mapped.get("metadata"), dict)
-            else None,
+            raw_payload_occasion,
+            raw_metadata_occasion,
         )
     except ValueError as e:
         logger.error("Invalid liturgical occasion for homily refinement: %s", e)
         return {"error": str(e), "occasion": occasion}
 
+    mapped = _map_liturgical_data(liturgical_data)
     logger.info(f"Requesting homily refinement: occasion={occasion}")
 
     mapped["occasion"] = occasion
