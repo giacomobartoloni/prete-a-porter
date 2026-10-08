@@ -67,6 +67,7 @@ def test_build_reading_applies_advent_cycle_and_pentecost_color(agent):
                 "liturgic_title": "I Domenica di Avvento",
                 "first_reading": {"reference": "a", "text": "a"},
                 "psalm": {"reference": "b", "text": "b"},
+                "second_reading": {"reference": "d", "text": "d"},
                 "gospel": {"reference": "c", "text": "c"},
             }
         },

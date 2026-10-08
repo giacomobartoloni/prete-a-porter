@@ -38,7 +38,7 @@ class ScraperError(Exception):
 
 
 def assert_complete_mass_reading(reading: "LiturgicalReading") -> "LiturgicalReading":
-    """Require nonblank first reading, psalm, and gospel; weekday second may be absent.
+    """Require complete readings, including the second reading for Sunday Mass.
 
     A present second reading must also have nonblank reference and text.
     """
@@ -52,6 +52,8 @@ def assert_complete_mass_reading(reading: "LiturgicalReading") -> "LiturgicalRea
         ("psalm", reading.psalm),
         ("gospel", reading.gospel),
     )
+    if reading.occasion == "mass" and reading.metadata.sunday_or_weekday == "Sunday":
+        required += (("second_reading", reading.second_reading),)
     for name, entry in required:
         if entry is None:
             raise ScraperError(f"Incomplete Mass readings: missing required {name}")

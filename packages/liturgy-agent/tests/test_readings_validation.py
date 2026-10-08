@@ -47,6 +47,43 @@ def test_assert_complete_mass_accepts_weekday_without_second() -> None:
     assert_complete_mass_reading(_complete_mass())
 
 
+def test_assert_complete_mass_rejects_sunday_without_second() -> None:
+    reading = _complete_mass("2026-10-11")
+    reading.metadata.sunday_or_weekday = "Sunday"
+    with pytest.raises(ScraperError, match="second_reading"):
+        assert_complete_mass_reading(reading)
+
+
+def test_assert_complete_mass_accepts_sunday_with_second() -> None:
+    reading = _complete_mass("2026-10-11", second=_reading("2 Tm 2,8-13", "second", "Second"))
+    reading.metadata.sunday_or_weekday = "Sunday"
+    assert_complete_mass_reading(reading)
+
+
+@pytest.mark.parametrize("occasion", ["marriage", "baptism", "funeral"])
+def test_ritual_readings_on_sunday_do_not_require_second(occasion) -> None:
+    reading = _complete_mass("2026-10-11")
+    reading.occasion = occasion
+    reading.metadata.occasion = occasion
+    reading.metadata.sunday_or_weekday = "Sunday"
+    assert_complete_mass_reading(reading)
+
+
+def test_sunday_cache_without_second_is_invalidated(tmp_path) -> None:
+    cache = LiturgyCache(db_path=str(tmp_path / "cache.db"))
+    reading = _complete_mass("2026-10-11")
+    reading.metadata.sunday_or_weekday = "Sunday"
+    cache.conn.execute(
+        """INSERT INTO liturgical_cache (date, occasion, data, expires_at)
+        VALUES (?, ?, ?, datetime('now', '+1 day'))""",
+        (reading.date, "mass", reading.model_dump_json()),
+    )
+    cache.conn.commit()
+    assert cache.get(reading.date, "mass") is None
+    assert cache.conn.execute("SELECT COUNT(*) FROM liturgical_cache").fetchone()[0] == 0
+    cache.conn.close()
+
+
 def test_assert_complete_mass_rejects_blank_required_text() -> None:
     reading = _complete_mass()
     reading.first_reading.text = "   "
