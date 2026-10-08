@@ -223,7 +223,7 @@ class TestContractCompliance:
         contract = load_contract()
 
         assert "error_codes" in contract
-        assert "-32603" in contract["error_codes"]
+        assert set(contract["error_codes"]) == {"-32603"}
 
     def test_daily_and_ritual_response_variants(self):
         # These assertions intentionally duplicate the consumer-visible contract.
@@ -244,7 +244,14 @@ class TestContractCompliance:
 
     @pytest.mark.parametrize("name", ["agent.ping", "liturgy_agent.get_readings", "liturgy_agent.get_lectionary"])
     def test_schemas_and_examples_match_independent_consumers(self, name):
-        method = next(m for m in load_contract()["methods"] if m["name"] == name)
+        contract = load_contract()
+        assert set(contract["error_codes"]) == {"-32603"}
+        method = next(m for m in contract["methods"] if m["name"] == name)
+        if name != "agent.ping":
+            assert len(method["errors"]) == 1
+            assert method["errors"][0]["code"] == -32603
+            assert method["errors"][0]["message"] == "Internal error"
+            assert set(method["errors"][0]["data"]) == {"error_id"}
         request_model = {"agent.ping": PingRequestContract, "liturgy_agent.get_readings": ReadingsRequestContract, "liturgy_agent.get_lectionary": LectionaryRequestContract}[name]
         results = [DailyMassResultContract, RitualReadingsResultContract, ReadingsErrorContract] if name.endswith("get_readings") else [PingResultContract if name == "agent.ping" else LectionaryResultContract]
         assert method["params"] == inline_schema(request_model)

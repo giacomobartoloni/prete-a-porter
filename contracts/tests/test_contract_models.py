@@ -56,3 +56,23 @@ def test_homily_consumer_rejects_obsolete_or_blank_shape(mutation):
         payload["data"]["homily"] = {"title": "old", "content": "text", "word_count": 800}
     with pytest.raises(ValidationError):
         HomilySuccessContract.model_validate(payload)
+
+
+@pytest.mark.parametrize("agent", ["liturgy", "homily"])
+@pytest.mark.parametrize("drift", ["code_table", "method_errors"])
+def test_definition_guards_reject_false_error_promises(monkeypatch, agent, drift):
+    import test_homily_contract as homily_tests
+    import test_liturgy_contract as liturgy_tests
+
+    module = liturgy_tests if agent == "liturgy" else homily_tests
+    contract = deepcopy(module.load_contract())
+    name = "liturgy_agent.get_readings" if agent == "liturgy" else "homily.generate"
+    if drift == "code_table":
+        contract["error_codes"]["-32602"] = "Invalid params"
+    else:
+        method = next(m for m in contract["methods"] if m["name"] == name)
+        method["errors"][0]["code"] = -32602
+    monkeypatch.setattr(module, "load_contract", lambda: contract)
+    suite = liturgy_tests.TestContractCompliance() if agent == "liturgy" else homily_tests.TestHomilyContractDefinition()
+    with pytest.raises(AssertionError):
+        suite.test_schemas_and_examples_match_independent_consumers(name)

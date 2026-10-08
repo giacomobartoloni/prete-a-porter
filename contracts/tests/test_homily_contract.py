@@ -234,7 +234,14 @@ class TestHomilyContractDefinition:
 
     @pytest.mark.parametrize("name", ["agent.ping", "homily.generate", "homily.refine", "homily.adjust_tone"])
     def test_schemas_and_examples_match_independent_consumers(self, name):
-        method = next(m for m in load_contract()["methods"] if m["name"] == name)
+        contract = load_contract()
+        assert set(contract["error_codes"]) == {"-32603"}
+        method = next(m for m in contract["methods"] if m["name"] == name)
+        if name != "agent.ping":
+            assert len(method["errors"]) == 1
+            assert method["errors"][0]["code"] == -32603
+            assert method["errors"][0]["message"] == "Internal error"
+            assert set(method["errors"][0]["data"]) == {"error_id"}
         request_model = PingRequestContract if name == "agent.ping" else GenerateRequestContract if name == "homily.generate" else RefineRequestContract
         result_model = PingResultContract if name == "agent.ping" else HomilySuccessContract
         assert method["params"] == inline_schema(request_model)
