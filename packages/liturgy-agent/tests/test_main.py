@@ -2,6 +2,19 @@ import pytest
 from unittest.mock import patch, MagicMock
 
 
+@pytest.mark.asyncio
+async def test_unknown_occasion_advertises_daily(monkeypatch, tmp_path):
+    from liturgy_agent.main import LiturgyAgentHandler
+
+    monkeypatch.setenv("DATABASE_PATH", str(tmp_path / "liturgy.db"))
+    handler = LiturgyAgentHandler.__new__(LiturgyAgentHandler)
+    handler.llm = None
+    with pytest.raises(ValueError) as error:
+        await handler._handle_get_readings({"occasion": "invalid"})
+    valid_options = str(error.value).split("Valid options: ")[1].split(", ")
+    assert "daily" in valid_options
+
+
 class TestHandleGetLectionary:
     """Tests for LiturgyAgentHandler._handle_get_lectionary."""
 
