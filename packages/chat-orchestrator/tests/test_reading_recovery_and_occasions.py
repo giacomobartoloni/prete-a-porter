@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import logging
+from contextlib import asynccontextmanager
+from copy import deepcopy
 
 import pytest
 
@@ -28,6 +30,70 @@ def _weekday_complete() -> dict:
         "psalm": {"reference": "Sal 48", "text": "salmo", "type": "Psalm"},
         "gospel": {"reference": "Mc 9,38-40", "text": "vangelo", "type": "Gospel"},
     }
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("tool_name", ["generation", "refinement"])
+@pytest.mark.parametrize("recovery", ["complete", "matching", "absent", "mismatch"])
+async def test_sunday_second_recovery_before_homily(monkeypatch, tool_name, recovery):
+    payload = deepcopy(_weekday_complete())
+    payload["date"] = payload["metadata"]["date"] = "2026-10-11"
+    payload["metadata"]["sunday_or_weekday"] = "Sunday"
+    if recovery in ("matching", "mismatch"):
+        reference = "selected" if recovery == "mismatch" else "2 Tm 2,8-13"
+        payload["second_reading"] = {"reference": reference, "text": "", "type": "Second"}
+    fetched = deepcopy(payload)
+    if recovery != "absent":
+        fetched["second_reading"] = {"reference": "2 Tm 2,8-13", "text": "second", "type": "Second"}
+    recovered = []
+    dispatched = []
+
+    async def fetch(occasion, date):
+        recovered.append((occasion, date))
+        return {"data": fetched}
+
+    class Client:
+        async def call_agent_method(self, **kwargs):
+            dispatched.append(kwargs["params"]["liturgical_data"])
+            return {"status": "success"}
+
+    @asynccontextmanager
+    async def client(**kwargs):
+        yield Client()
+
+    monkeypatch.setattr(tools, "request_liturgical_data", fetch)
+    monkeypatch.setattr("a2a_protocol.a2a_client", client)
+    if tool_name == "generation":
+        result = await tools.request_homily_generation({"data": payload}, "mass")
+    else:
+        result = await tools.request_homily_refinement({"data": payload}, "mass", existing_draft="draft")
+    assert recovered == [("mass", "2026-10-11")]
+    if recovery in ("complete", "matching"):
+        assert result["status"] == "success"
+        assert dispatched[0]["second_reading"]["text"] == "second"
+        assert dispatched[0]["gospel"] == payload["gospel"]
+    else:
+        assert "error" in result
+        assert dispatched == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("occasion", ["mass", "marriage", "baptism", "funeral"])
+async def test_sunday_date_fallback_only_requires_second_for_mass(monkeypatch, occasion):
+    payload = _weekday_complete()
+    payload["date"] = "2026-10-11"
+    payload["occasion"] = occasion
+    payload.pop("metadata")
+    calls = []
+
+    async def fetch(*args):
+        calls.append(args)
+        return {"data": payload}
+
+    monkeypatch.setattr(tools, "request_liturgical_data", fetch)
+    mapped = await tools._with_full_reading_texts(tools._map_liturgical_data(payload), occasion)
+    assert bool(calls) == (occasion == "mass")
+    assert tools._required_readings_complete(mapped, occasion) == (occasion != "mass")
 
 
 @pytest.mark.asyncio

@@ -116,8 +116,23 @@ def _references_match(selected: Optional[str], fetched: Optional[str]) -> bool:
     return selected.strip() == fetched.strip()
 
 
-def _required_readings_complete(mapped: dict) -> bool:
-    for key in _REQUIRED_READING_KEYS:
+def _required_reading_keys(mapped: dict, occasion: str) -> tuple[str, ...]:
+    if occasion != "mass":
+        return _REQUIRED_READING_KEYS
+    metadata = mapped.get("metadata")
+    kind = metadata.get("sunday_or_weekday") if isinstance(metadata, dict) else None
+    if kind in _WEEKDAY_KINDS:
+        sunday = kind == "Sunday"
+    else:
+        try:
+            sunday = datetime.fromisoformat(mapped.get("date", "")).weekday() == 6
+        except (TypeError, ValueError):
+            sunday = False
+    return _REQUIRED_READING_KEYS + (("second_reading",) if sunday else ())
+
+
+def _required_readings_complete(mapped: dict, occasion: str = "mass") -> bool:
+    for key in _required_reading_keys(mapped, occasion):
         if not _reading_fields_complete(mapped.get(key)):
             return False
     return True
@@ -268,9 +283,10 @@ async def _with_full_reading_texts(mapped: dict, occasion: str) -> dict:
     selections are preserved.
     """
     incomplete_keys: list[str] = []
+    required_keys = _required_reading_keys(mapped, occasion)
     for key, _ in _READING_KEYS:
         reading = mapped.get(key)
-        if key in _REQUIRED_READING_KEYS:
+        if key in required_keys:
             if reading is None or not _reading_fields_complete(reading):
                 incomplete_keys.append(key)
         elif _reading_text_missing(reading):
@@ -672,7 +688,7 @@ async def request_homily_generation(
         mapped["metadata"] = dict(mapped["metadata"])
         mapped["metadata"]["occasion"] = occasion
     mapped = await _with_full_reading_texts(mapped, occasion)
-    if not _required_readings_complete(mapped):
+    if not _required_readings_complete(mapped, occasion):
         logger.error(
             "Incomplete liturgical data for homily generation: keys=%s",
             sorted(mapped.keys()),
@@ -736,7 +752,7 @@ async def request_homily_refinement(
         mapped["metadata"] = dict(mapped["metadata"])
         mapped["metadata"]["occasion"] = occasion
     mapped = await _with_full_reading_texts(mapped, occasion)
-    if not _required_readings_complete(mapped):
+    if not _required_readings_complete(mapped, occasion):
         logger.error("Incomplete liturgical data for homily refinement")
         return {"error": "Dati liturgici incompleti. Richiedi prima le letture del giorno.", "occasion": occasion}
 
