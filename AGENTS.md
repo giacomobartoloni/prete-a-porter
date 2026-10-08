@@ -319,6 +319,15 @@ Format Response (A2A JSON-RPC 2.0)
 | `evangelizo.org` | Web scraping | Daily Gospel readings, liturgical calendar |
 | Lectionary JSON | `lectionaries/*.json` | Pre-loaded ritual readings (marriage, baptism, funeral) |
 
+### Calendar / colour inference (bounded)
+
+Season and liturgical colour are inferred from the upstream `liturgic_title`
+string (keyword matching) plus a small set of explicit feast exceptions
+(e.g. Pentecost → Red). The A/B/C year cycle advances at First Advent Sunday
+(Sunday on/before 3 December). This is **title-based and limited**: unsupported
+feasts and local calendars are not certified as authoritative Roman Rite
+metadata.
+
 ### Architecture Decisions
 
 | ID | Decision | Rationale |
@@ -363,19 +372,23 @@ content, style adaptation, and iterative refinement.
 
 ```
 Incoming A2A Request (generate / refine / adjust_tone)
-    ↓
+ ↓
 Parse Request (extract preferences, set defaults)
-    ↓
+ ↓
 RAG Retrieval (query theological knowledge base via ChromaDB)
-    ↓
+ ↓
 Outline Generation (intro → reflection → application → conclusion)
-    ↓
+ ↓
 Section Generation (4 sections with occasion-specific templates)
-    ↓
-Theological Validation (verify accuracy and appropriateness)
-    ↓
+ ↓
+Structural Completeness (nonblank intro/reflection/application/conclusion)
+ ↓
 Format Response (A2A JSON-RPC 2.0)
 ```
+
+Validation is **structural only**: missing or blank section content fails the
+graph/handler. There is **no theological evaluation** step (no LLM accuracy or
+doctrine checker).
 
 ### RAG Pipeline
 
