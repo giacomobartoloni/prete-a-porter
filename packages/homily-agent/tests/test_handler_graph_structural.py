@@ -151,3 +151,18 @@ async def test_handler_accepts_coherent_or_absent_ritual_occasions(intent, neste
         {"occasion": "marriage", "liturgical_data": data, "existing_draft": "draft"}, intent
     )
     assert result["homily"]["occasion"] == "marriage"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("intent", ["generate", "refine", "adjust"])
+async def test_original_generator_error_survives_graph_validation(monkeypatch, intent):
+    def fail_generation(*args, **kwargs):
+        raise RuntimeError("UNIQUE_ORIGINAL_GENERATOR_FAILURE")
+
+    monkeypatch.setattr(_StubGenerator, "generate", fail_generation)
+    handler = _handler_with(_complete_homily())
+    with pytest.raises(RuntimeError, match="UNIQUE_ORIGINAL_GENERATOR_FAILURE"):
+        await handler._invoke_graph(
+            {"occasion": "mass", "liturgical_data": _liturgical_data(), "existing_draft": "draft"},
+            intent,
+        )

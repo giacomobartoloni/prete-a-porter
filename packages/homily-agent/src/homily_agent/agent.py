@@ -158,6 +158,10 @@ class HomilyAgent:
             Validation result; includes ``error`` when structure is invalid
         """
         logger.info("Validating homily structure")
+        if state.error:
+            return {"validation": {
+                "valid": False, "issues": [state.error], "kind": "structural"
+            }}
         
         validation_result = {
             "valid": True,
