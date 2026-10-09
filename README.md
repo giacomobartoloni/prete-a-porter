@@ -2,7 +2,7 @@
 
 **Prete-à-porter** is an AI-powered Catholic homily generator — born as a joke, looking for a provocative use case for AI, and turned into an excuse to learn agentic engineering, LLM interaction, agents, and RAG technologies. Drop in the Sunday Gospel, pick a tone, and get a pulpit-ready text in seconds. It is not a serious tool — it is a serious question dressed as provocation. What happens when we delegate to AI what by definition requires a human being? The homily theme is deliberately uncomfortable: a testbed to probe the limits of language models on the most human form of expression that exists: the homily.
 
-It is also a multi-agent A2A (Agent-to-Agent) system with WebSocket orchestration, coordinating specialized agents for liturgical data retrieval and homily generation through a Next.js chat interface.
+It is also a multi-agent A2A (Agent-to-Agent) system with a shared orchestration core, coordinating specialized agents for liturgical data retrieval and homily generation through replaceable chat shells and a native Chainlit UI.
 
 ## What you'll learn
 
@@ -18,29 +18,40 @@ This project started as a way to force a conversation about architecture instead
 
 **Testing strategies for agentic systems.** Mock LLMs via `TEST_MODE`, checkpointer test doubles, Playwright browser tests for WebSocket auth, contract tests against explicitly started real agent processes that verify the protocol end to end.
 
-**Honest documentation.** Alongside the code, AGENTS.md does not just describe the system — it documents active bugs, trade-offs for every design decision (seven ADRs with rationale and cost), and links to a full code review report with 39 findings. The contract JSON files even document known unimplemented methods inline. If you are used to polished demo projects, this one leaves the scaffolding visible.
+**Honest documentation.** Alongside the code, AGENTS.md does not just describe the system — it documents active bugs, architecture decisions with rationale and trade-offs, and links to a full code review report with 39 findings. The contract JSON files are checked against independent consumer models and live agent responses. If you are used to polished demo projects, this one leaves the scaffolding visible.
 
 ## Architecture
 
-```
-   OpenWebUI (3001)              Next.js chat (3000)
-        │                              │
-        │ OpenAI-compatible HTTP, SSE  │ WebSocket (JWT)
-        │ Bearer ORCHESTRATOR_API_KEY  │
-        ╲                              ╱
-         ╲                            ╱
-          ↓                          ↓
-         Chat Orchestrator (FastAPI, port 8000)
-            │ A2A JSON-RPC 2.0 over HTTP (Basic Auth)
-           ╱                      ╲
-          ↓                        ↓
-   Liturgy Agent (8001)    Homily Agent (8002)
-   SQLite cache, scrapers   ChromaDB + sentence-transformers
+```text
+   OpenWebUI (3001)              LibreChat (3002, optional)
+        │                                   │
+        └──────── OpenAI-compatible /v1 ─────┘
+                         │
+                         ▼
+              Chat Orchestrator (8000)
+                         │ A2A JSON-RPC / Basic Auth
+                    ┌────┴────┐
+                    ▼         ▼
+             Liturgy Agent  Homily Agent
+               (8001)         (8002)
+
+   Next.js (3000, transitional)
+             │ WebSocket + JWT
+             ▼
+       Chat Orchestrator
+
+   Chainlit / prete-chat (3003, optional)
+             │ in-process application seam
+             ▼
+   chat_orchestrator.application
+             │ A2A JSON-RPC / Basic Auth
+             ▼
+       Liturgy / Homily agents
 ```
 
-Both frontends are live while the OpenWebUI migration is verified. The orchestrator is
-**stateless**: every request carries its own message history and no checkpointer
-exists.
+OpenWebUI and the legacy Next.js frontend belong to the base stack. LibreChat
+and the native Chainlit UI are optional overlays. The orchestrator core is
+**stateless**: callers supply conversation history and no checkpointer exists.
 
 ## Prerequisites
 
@@ -51,7 +62,8 @@ exists.
 
 ```bash
 # 1. Clone and enter the project
-cd preteaporter
+git clone https://github.com/giacomobartoloni/prete-a-porter.git
+cd prete-a-porter
 
 # 2. Copy environment template and configure
 cp .env.example .env
@@ -59,10 +71,14 @@ cp .env.example .env
 # 3. Create the persistent data directory
 mkdir -p data
 
-# 4. Start everything
+# 4. Build the Inspector image required by the base Compose file
+git clone https://github.com/a2aproject/a2a-inspector.git ../a2a-inspector
+(cd ../a2a-inspector && docker build -t a2a-inspector .)
+
+# 5. Start the base stack
 docker compose up -d --build
 
-# 5. Wait until the orchestrator reports healthy
+# 6. Wait until the orchestrator reports healthy
 until curl -sf localhost:8000/health > /dev/null; do sleep 2; done; echo ready
 ```
 
@@ -77,11 +93,11 @@ Then open **http://localhost:3001** (OpenWebUI) or **http://localhost:3000**
 | `OPENAI_BASE_URL`, `OPENAI_MODEL_NAME` | Only when using `OPENAI_API_KEY`, including OpenAI-compatible providers. The model name must exist in that provider's catalogue. |
 | `WS_JWT_SECRET` | WebSocket ticket signing. The orchestrator refuses to start without it. |
 | `AUTH_SECRET` | NextAuth session signing, for the Next.js frontend. |
-| `ORCHESTRATOR_API_KEY` | Bearer key for `/v1/*`. Every request fails with 500 if unset. |
+| `ORCHESTRATOR_API_KEY` | Bearer key required for `/v1/*`; leaving it unset is a deployment misconfiguration and authenticated requests fail loudly. |
 | `WEBUI_SECRET_KEY` | OpenWebUI session signing. |
 | `A2A_BASIC_AUTH_USERNAME` / `_PASSWORD` | Inter-agent HTTP Basic Auth. |
 
-Generate the three secrets with:
+Generate the required base-stack secrets with:
 
 ```bash
 openssl rand -hex 32   # WS_JWT_SECRET, ORCHESTRATOR_API_KEY, WEBUI_SECRET_KEY
@@ -112,6 +128,33 @@ The most common one is a provider-side failure — an expired key, a suspended b
 account, or a model name absent from the catalogue. `GET {OPENAI_BASE_URL}/models`
 with the same key distinguishes them.
 
+### Optional chat shells
+
+Configure the additional environment variables described in each overlay's
+README before starting it. Run these commands from the repository root.
+
+For the native Chainlit UI, see [deployment and account provisioning](deploy/chainlit/README.md):
+
+```bash
+docker compose \
+  -f docker-compose.yml \
+  -f deploy/chainlit/docker-compose.chainlit.yml \
+  up -d --build
+```
+
+Open **http://localhost:3003**.
+
+For the OpenAI-compatible LibreChat shell, see [deployment instructions](deploy/librechat/README.md):
+
+```bash
+docker compose \
+  -f docker-compose.yml \
+  -f deploy/librechat/docker-compose.librechat.yml \
+  up -d
+```
+
+Open **http://localhost:3002**. Each overlay adds its own persistence service.
+
 ### Stopping
 
 ```bash
@@ -121,16 +164,20 @@ docker compose down -v       # also drop OpenWebUI's data and the frontend DB
 
 ## Interfaces
 
-Two chat frontends run side by side while the OpenWebUI migration is being verified.
+Chat shells own their accounts and conversation persistence; the runtime path
+is shared by OpenAI-compatible clients and the native UI.
 
-| Interface | URL | Transport to the orchestrator | Auth |
-|---|---|---|---|
-| OpenWebUI | **http://localhost:3001** | `POST /v1/chat/completions` (OpenAI-compatible, SSE) | Bearer `ORCHESTRATOR_API_KEY` |
-| Next.js chat | **http://localhost:3000** | `WS /ws/chat/{session_id}` | NextAuth + a 30 s `ws_ticket` JWT |
+| Interface | Local URL | Runtime path | Persistence / Auth | Deployment |
+|---|---|---|---|---|
+| OpenWebUI | **http://localhost:3001** | `POST /v1/chat/completions` (SSE) | OpenWebUI-owned; runtime bearer key | base stack |
+| Next.js chat | **http://localhost:3000** | `WS /ws/chat/{session_id}` | NextAuth + SQLite; 30 s `ws_ticket` JWT | base stack, transitional |
+| LibreChat | **http://localhost:3002** | `POST /v1/chat/completions` (SSE) | LibreChat + MongoDB; runtime bearer key | optional overlay |
+| Chainlit / prete-chat | **http://localhost:3003** | in-process `chat_orchestrator.application` | Chainlit password auth + PostgreSQL | optional overlay |
 
-OpenWebUI listens on **3001, not 3000**, because the Next.js frontend still owns 3000.
+OpenWebUI uses **3001** while the legacy Next.js frontend owns 3000.
 When the cutover removes that service, change the `openwebui` ports entry to
-`"3000:8080"` in `docker-compose.yml`; nothing else depends on the number.
+`"127.0.0.1:3000:8080"` in `docker-compose.yml`. Keep the host binding loopback-only;
+public traffic must pass through Caddy.
 
 OpenWebUI needs one manual step on first run: create the admin account, then select the
 `prete-a-porter` model. The connection itself is preconfigured.
@@ -146,6 +193,15 @@ OpenWebUI needs one manual step on first run: create the admin account, then sel
 | homily-agent | 8002 | Homily generation (RAG) | `packages/homily-agent/Dockerfile` |
 | caddy | 80, 443 | TLS reverse proxy (production) | `caddy:2-alpine` |
 | a2a-inspector | 8080 | A2A debug tool (requires a separate image build) | External |
+
+### Optional overlay services
+
+| Service | Host binding | Description |
+|---|---|---|
+| `librechat` | 127.0.0.1:3002 → 3080 | Optional OpenAI-compatible chat shell |
+| `librechat-mongodb` | internal only | LibreChat persistence |
+| `prete-chat` | 127.0.0.1:3003 → 8000 | Native Chainlit UI |
+| `prete-chat-db` | internal only | Chainlit PostgreSQL persistence |
 
 ## Environment Variables
 
@@ -225,13 +281,14 @@ curl -u "$A2A_BASIC_AUTH_USERNAME:$A2A_BASIC_AUTH_PASSWORD" -X POST http://local
 
 ## A2A Inspector
 
-A web-based debug tool for A2A agents. Build and run from the [upstream repo](https://github.com/a2aproject/a2a-inspector):
+A web-based debug tool for A2A agents. The Quick Start builds its required local
+image because the base Compose file includes this service without a build
+instruction. If you skipped that preparation, build and run it from the
+[upstream repo](https://github.com/a2aproject/a2a-inspector), starting at the repository root:
 
 ```bash
-git clone https://github.com/a2aproject/a2a-inspector.git
-cd a2a-inspector
-docker build -t a2a-inspector .
-cd ../preteaporter
+git clone https://github.com/a2aproject/a2a-inspector.git ../a2a-inspector
+(cd ../a2a-inspector && docker build -t a2a-inspector .)
 docker compose up -d a2a-inspector
 ```
 

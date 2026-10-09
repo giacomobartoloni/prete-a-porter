@@ -1,15 +1,15 @@
 # Chainlit native UI (prete-chat) — additive overlay.
 #
-# The OpenAI-compatible surface, OpenWebUI, LibreChat, the legacy Next.js
-# frontend and both agents keep running. Start it with:
+# The base stack keeps running unchanged. If the LibreChat overlay is also
+# enabled, it remains independent. Start the native UI with:
 #
 #   docker compose -f docker-compose.yml -f deploy/chainlit/docker-compose.chainlit.yml up -d --build
 #
 # Native UI: http://localhost:3003
 #
-# This is the POC stage: no database and no authentication yet, so the service
-# is reachable only on loopback. The Postgres data layer joins this file in the
-# persistence phase.
+# PostgreSQL persistence and password authentication are enabled in this overlay.
+# The UI binds only to loopback; public exposure belongs behind the intended
+# reverse proxy (Caddy) and DNS configuration.
 
 services:
   prete-chat:
