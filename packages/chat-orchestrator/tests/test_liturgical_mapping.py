@@ -5,6 +5,8 @@ model compacts on its way through `generate_homily` (bare reference strings, par
 must be repaired here — otherwise homily.generate dies with a pydantic ValidationError.
 """
 
+import pytest
+
 from chat_orchestrator import tools
 
 VALID_METADATA = {
@@ -65,10 +67,10 @@ def test_metadata_missing_required_fields_is_dropped():
     assert mapped["gospel"]["reference"] == "Matteo 20,1-16a"
 
 
-def test_reading_without_reference_is_dropped():
-    mapped = tools._map_liturgical_data({"gospel": {"text": "solo testo, nessun riferimento"}})
-
-    assert "gospel" not in mapped
+def test_reading_without_reference_is_rejected():
+    """Present reading objects missing a reference must not be silently dropped."""
+    with pytest.raises(ValueError, match="missing reference|invalid"):
+        tools._map_liturgical_data({"gospel": {"text": "solo testo, nessun riferimento"}})
 
 
 async def test_missing_texts_and_metadata_are_recovered_from_the_liturgy_agent(monkeypatch):

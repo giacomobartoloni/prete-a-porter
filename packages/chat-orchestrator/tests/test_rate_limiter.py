@@ -5,7 +5,6 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from fastapi import WebSocketDisconnect
-from langchain_core.messages import AIMessage
 
 # ---------------------------------------------------------------------------
 # TestRateLimiter — sliding window rate limiting
@@ -270,7 +269,7 @@ class TestMessageLoopRateLimit:
             routes_mod._rate_limiter = None
 
     @pytest.mark.asyncio
-    async def test_rate_limited_message_returns_error(self):
+    async def test_rate_limited_message_returns_error(self, monkeypatch):
 
         ws = MagicMock()
         ws.receive_text = AsyncMock(side_effect=[
@@ -279,15 +278,14 @@ class TestMessageLoopRateLimit:
             WebSocketDisconnect(),
         ])
         ws.send_json = AsyncMock()
-
-        graph = MagicMock()
-        graph.ainvoke = AsyncMock(return_value={
-            "messages": [AIMessage(content="ok")],
-        })
+        monkeypatch.setattr(
+            "chat_orchestrator.routes.run_chat",
+            AsyncMock(return_value="ok"),
+        )
 
         from chat_orchestrator.routes import _message_loop
         try:
-            await _message_loop(ws, graph, "session-1", "user-1", "corr-1")
+            await _message_loop(ws, "session-1", "user-1", "corr-1")
         except WebSocketDisconnect:
             pass
 

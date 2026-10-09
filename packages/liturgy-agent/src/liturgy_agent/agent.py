@@ -16,7 +16,7 @@ The agent integrates with:
 
 import asyncio
 import json
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from typing import Optional, Literal, Any
 import logging
 
@@ -33,7 +33,8 @@ from .cache import LiturgyCache
 from .scrapers import (
     fetch_liturgical_data,
     EvangelizeScraper,
-    ScraperError
+    ScraperError,
+    assert_complete_mass_reading,
 )
 
 logger = logging.getLogger(__name__)
@@ -47,15 +48,16 @@ class LiturgyAgent:
     and returning appropriate Mass readings and information.
     """
     
-    def __init__(self, llm: Any):
+    def __init__(self, llm: Any, cache_db_path: str | None = None):
         """
         Initialize the Liturgy Agent.
         
         Args:
             llm: Language model for reasoning and parsing
+            cache_db_path: Optional SQLite path for the readings cache
         """
         self.llm = llm
-        self.cache = LiturgyCache()
+        self.cache = LiturgyCache(db_path=cache_db_path)
         self.tools = self._setup_tools()
     
     def _setup_tools(self):
@@ -90,10 +92,10 @@ class LiturgyAgent:
         else:
             target_date = datetime.fromisoformat(date)
         
-        # Try cache first
+        # Try cache first (poisoned/incomplete rows are treated as misses)
         cached = self.cache.get(
             target_date.strftime("%Y-%m-%d"),
-            "Mass of the Day"
+            "mass"
         )
         if cached:
             return {
@@ -353,13 +355,57 @@ class LiturgyAgent:
         "Ordinary":  "Green",
     }
 
+    # Title-based feast colour exceptions (not a full diocesan calendar).
+    _FEAST_COLOR_EXCEPTIONS: tuple[tuple[tuple[str, ...], str], ...] = (
+        (("pentecost", "pentecoste"), "Red"),
+    )
+
+    @staticmethod
+    def first_advent_sunday(year: int) -> date:
+        """Return the First Sunday of Advent (Sunday on or before 3 December)."""
+        dec3 = date(year, 12, 3)
+        return dec3 - timedelta(days=(dec3.weekday() + 1) % 7)
+
+    def liturgical_year_cycle(self, day: date) -> Literal["A", "B", "C"]:
+        """Return A/B/C for ``day``, advancing at First Advent Sunday.
+
+        Uses the existing mapping ``["C", "A", "B"][year % 3]`` against the
+        civil year of the Advent that opened the current liturgical year,
+        shifted by one so Advent 2026 is Year B.
+        """
+        advent_this_year = self.first_advent_sunday(day.year)
+        advent_year = day.year if day >= advent_this_year else day.year - 1
+        # A/B/C for the liturgical year opened by Advent of ``advent_year``.
+        # Advent 2026 → B (USCCB). Same three-letter set as the prior civil-year table.
+        return ["A", "B", "C"][advent_year % 3]  # type: ignore[return-value]
+
     def _infer_season(self, liturgic_title: str) -> str:
-        """Infer liturgical season from the Italian/English liturgic title."""
+        """Infer liturgical season from the Italian/English liturgic title.
+
+        Season/colour inference remains title-based and limited: unsupported
+        feast metadata is not certified as an authoritative calendar.
+        """
+        if not isinstance(liturgic_title, str):
+            raise ScraperError(
+                "Malformed upstream liturgic_title schema/shape for metadata inference"
+            )
         lower = liturgic_title.lower()
         for season, keywords in self._SEASON_KEYWORDS.items():
             if any(kw in lower for kw in keywords):
                 return season
         return "Ordinary"
+
+    def infer_liturgical_color(self, season: str, liturgic_title: str) -> str:
+        """Map season to colour, applying explicit supported feast exceptions."""
+        if not isinstance(liturgic_title, str):
+            raise ScraperError(
+                "Malformed upstream liturgic_title schema/shape for metadata inference"
+            )
+        lower = liturgic_title.lower()
+        for keywords, color in self._FEAST_COLOR_EXCEPTIONS:
+            if any(kw in lower for kw in keywords):
+                return color
+        return self._SEASON_COLORS.get(season, "Green")
 
     def _build_reading_from_scraped(
         self,
@@ -391,13 +437,31 @@ class LiturgyAgent:
         Returns:
             LiturgicalReading object ready for caching
         """
+        if not isinstance(scraped, dict):
+            raise ScraperError("Malformed scraped payload schema/shape: expected object")
         sources = scraped.get("sources", {})
+        if not isinstance(sources, dict):
+            raise ScraperError("Malformed scraped sources schema/shape: expected object")
+        if not sources:
+            raise ScraperError("No liturgical data from any source")
         ev = sources.get("evangelizo.ws", {})
+        if not isinstance(ev, dict):
+            raise ScraperError("Malformed evangelizo.ws source schema/shape: expected object")
 
         def _reading(entry: dict, reading_type: str) -> Reading:
+            if not isinstance(entry, dict):
+                raise ScraperError(
+                    f"Malformed upstream reading schema/shape for {reading_type}"
+                )
+            ref = entry.get("reference", "")
+            text = entry.get("text", "")
+            if not isinstance(ref, str) or not isinstance(text, str):
+                raise ScraperError(
+                    f"Malformed upstream reading schema/shape for {reading_type}"
+                )
             return Reading(
-                reference=entry.get("reference", ""),
-                text=entry.get("text", ""),
+                reference=ref,
+                text=text,
                 type=reading_type,
             )
 
@@ -411,17 +475,13 @@ class LiturgyAgent:
         if ev.get("second_reading"):
             second_reading = _reading(ev["second_reading"], "Second")
 
-        # Infer season and colour from liturgical title
+        # Infer season and colour from liturgical title (title-based, limited).
         liturgic_title = ev.get("liturgic_title", "")
+        if liturgic_title is None:
+            liturgic_title = ""
         season = self._infer_season(liturgic_title)
-        color  = self._SEASON_COLORS.get(season, "Green")
-
-        # Liturgical year cycle (A/B/C) based on the Gregorian year.
-        # Year C: divisible by 3 (e.g. 2025), B: remainder 1, A: remainder 2.
-        # Cycle switches at the start of Advent (late Nov/early Dec).
-        year = date.year
-        cycle_index = year % 3          # 0→C, 1→A, 2→B  (approx.)
-        year_cycle  = ["C", "A", "B"][cycle_index]
+        color = self.infer_liturgical_color(season, liturgic_title)
+        year_cycle = self.liturgical_year_cycle(date.date())
 
         # Build metadata
         metadata = LiturgicalMetadata(
@@ -433,7 +493,7 @@ class LiturgyAgent:
             sunday_or_weekday="Sunday" if date.weekday() == 6 else "Weekday",
         )
 
-        return LiturgicalReading(
+        reading = LiturgicalReading(
             date=date.strftime("%Y-%m-%d"),
             occasion="mass",
             metadata=metadata,
@@ -445,6 +505,7 @@ class LiturgyAgent:
             cached_at=datetime.now(),
             source=ev.get("source", "evangelizo.ws"),
         )
+        return assert_complete_mass_reading(reading)
 
 
 async def agent_node(

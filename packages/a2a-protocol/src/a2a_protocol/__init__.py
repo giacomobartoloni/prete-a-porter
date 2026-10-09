@@ -37,7 +37,8 @@ from .transport import (
 from .server import (
     A2AServer,
     AgentHandler,
-    create_server
+    create_server,
+    resolve_basic_auth_credentials,
 )
 
 from .client import (
@@ -76,6 +77,7 @@ __all__ = [
     "A2AServer",
     "AgentHandler",
     "create_server",
+    "resolve_basic_auth_credentials",
     
     # Client
     "A2AClient",

@@ -5,7 +5,9 @@
   "transport": {
     "type": "http",
     "port": 8002,
-    "endpoint": "/a2a"
+    "endpoint": "/",
+    "message_send_endpoint": "/message:send",
+    "authentication": "HTTP Basic Auth on application routes; /health is public"
   },
   "protocol": {
     "type": "jsonrpc",
@@ -15,27 +17,33 @@
     {
       "name": "agent.ping",
       "description": "Health check endpoint to verify agent availability",
-      "params": {},
+      "params": {
+        "additionalProperties": false,
+        "properties": {},
+        "type": "object"
+      },
       "returns": {
-        "type": "object",
+        "additionalProperties": false,
         "properties": {
           "status": {
-            "type": "string",
-            "description": "Health status indicator",
-            "enum": ["ok", "pong"]
+            "const": "pong",
+            "type": "string"
           },
           "agent": {
             "type": "string",
-            "description": "Agent identifier",
             "const": "homily_agent"
           },
           "version": {
-            "type": "string",
-            "description": "Agent version",
-            "optional": true
+            "pattern": "\\S",
+            "type": "string"
           }
         },
-        "required": ["status", "agent"]
+        "required": [
+          "status",
+          "agent",
+          "version"
+        ],
+        "type": "object"
       },
       "examples": {
         "request": {
@@ -48,8 +56,9 @@
           "jsonrpc": "2.0",
           "id": "1",
           "result": {
-            "status": "ok",
-            "agent": "homily_agent"
+            "status": "pong",
+            "agent": "homily_agent",
+            "version": "0.1.0"
           }
         }
       }
@@ -58,114 +67,497 @@
       "name": "homily.generate",
       "description": "Generate a new homily based on liturgical readings and preferences",
       "params": {
-        "type": "object",
+        "additionalProperties": false,
         "properties": {
           "liturgical_data": {
-            "type": "object",
-            "description": "Liturgical readings data",
+            "additionalProperties": false,
             "properties": {
-              "first_reading": {
-                "type": "object",
-                "description": "First reading content",
+              "date": {
+                "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+                "type": "string"
+              },
+              "occasion": {
+                "enum": [
+                  "mass",
+                  "marriage",
+                  "baptism",
+                  "funeral"
+                ],
+                "type": "string"
+              },
+              "metadata": {
+                "additionalProperties": false,
                 "properties": {
-                  "reference": { "type": "string" },
-                  "text": { "type": "string" }
-                }
+                  "date": {
+                    "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+                    "type": "string"
+                  },
+                  "occasion": {
+                    "enum": [
+                      "mass",
+                      "marriage",
+                      "baptism",
+                      "funeral"
+                    ],
+                    "type": "string"
+                  },
+                  "season": {
+                    "type": "string"
+                  },
+                  "color": {
+                    "type": "string"
+                  },
+                  "year_cycle": {
+                    "enum": [
+                      "A",
+                      "B",
+                      "C"
+                    ],
+                    "type": "string"
+                  },
+                  "sunday_or_weekday": {
+                    "enum": [
+                      "Sunday",
+                      "Weekday"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "date",
+                  "season",
+                  "color",
+                  "year_cycle",
+                  "sunday_or_weekday"
+                ],
+                "type": "object"
+              },
+              "first_reading": {
+                "additionalProperties": false,
+                "properties": {
+                  "reference": {
+                    "pattern": "\\S",
+                    "type": "string"
+                  },
+                  "text": {
+                    "pattern": "\\S",
+                    "type": "string"
+                  },
+                  "type": {
+                    "enum": [
+                      "First",
+                      "Second",
+                      "Gospel",
+                      "Psalm",
+                      "Alleluia"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "reference",
+                  "text",
+                  "type"
+                ],
+                "type": "object"
               },
               "psalm": {
-                "type": "object",
-                "description": "Psalm content",
-                "properties": {
-                  "reference": { "type": "string" },
-                  "text": { "type": "string" }
-                }
+                "anyOf": [
+                  {
+                    "additionalProperties": false,
+                    "properties": {
+                      "reference": {
+                        "pattern": "\\S",
+                        "type": "string"
+                      },
+                      "text": {
+                        "pattern": "\\S",
+                        "type": "string"
+                      },
+                      "type": {
+                        "enum": [
+                          "First",
+                          "Second",
+                          "Gospel",
+                          "Psalm",
+                          "Alleluia"
+                        ],
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "reference",
+                      "text",
+                      "type"
+                    ],
+                    "type": "object"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "second_reading": {
+                "anyOf": [
+                  {
+                    "additionalProperties": false,
+                    "properties": {
+                      "reference": {
+                        "pattern": "\\S",
+                        "type": "string"
+                      },
+                      "text": {
+                        "pattern": "\\S",
+                        "type": "string"
+                      },
+                      "type": {
+                        "enum": [
+                          "First",
+                          "Second",
+                          "Gospel",
+                          "Psalm",
+                          "Alleluia"
+                        ],
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "reference",
+                      "text",
+                      "type"
+                    ],
+                    "type": "object"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
               },
               "gospel": {
-                "type": "object",
-                "description": "Gospel content",
+                "additionalProperties": false,
                 "properties": {
-                  "reference": { "type": "string" },
-                  "text": { "type": "string" }
-                }
+                  "reference": {
+                    "pattern": "\\S",
+                    "type": "string"
+                  },
+                  "text": {
+                    "pattern": "\\S",
+                    "type": "string"
+                  },
+                  "type": {
+                    "enum": [
+                      "First",
+                      "Second",
+                      "Gospel",
+                      "Psalm",
+                      "Alleluia"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "reference",
+                  "text",
+                  "type"
+                ],
+                "type": "object"
+              },
+              "alleluia_verse": {
+                "anyOf": [
+                  {
+                    "additionalProperties": false,
+                    "properties": {
+                      "reference": {
+                        "pattern": "\\S",
+                        "type": "string"
+                      },
+                      "text": {
+                        "pattern": "\\S",
+                        "type": "string"
+                      },
+                      "type": {
+                        "enum": [
+                          "First",
+                          "Second",
+                          "Gospel",
+                          "Psalm",
+                          "Alleluia"
+                        ],
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "reference",
+                      "text",
+                      "type"
+                    ],
+                    "type": "object"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "cached_at": {
+                "format": "date-time",
+                "type": "string"
+              },
+              "source": {
+                "type": "string"
               }
-            }
+            },
+            "required": [
+              "date",
+              "first_reading",
+              "gospel"
+            ],
+            "type": "object"
           },
           "occasion": {
-            "type": "string",
-            "description": "Liturgical occasion type",
             "default": "mass",
-            "enum": ["mass", "marriage", "funeral", "baptism"]
+            "enum": [
+              "mass",
+              "marriage",
+              "baptism",
+              "funeral"
+            ],
+            "type": "string"
           },
           "preferences": {
-            "type": "object",
-            "description": "User preferences for homily generation",
+            "additionalProperties": false,
             "properties": {
-              "style": {
-                "type": "string",
-                "description": "Homily style preference",
-                "enum": ["contemplative", "expository", "narrative", "thematic"]
+              "target_audience": {
+                "default": "adults",
+                "enum": [
+                  "adults",
+                  "youth",
+                  "children",
+                  "mixed"
+                ],
+                "type": "string"
+              },
+              "tone": {
+                "default": "formal",
+                "enum": [
+                  "formal",
+                  "conversational",
+                  "poetic",
+                  "consolatory",
+                  "celebratory"
+                ],
+                "type": "string"
               },
               "length": {
-                "type": "string",
-                "description": "Desired homily length",
-                "enum": ["short", "medium", "long"]
+                "default": "medium",
+                "enum": [
+                  "short",
+                  "medium",
+                  "long"
+                ],
+                "type": "string"
               },
-              "audience": {
-                "type": "string",
-                "description": "Target audience"
+              "themes": {
+                "anyOf": [
+                  {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null
               },
-              "language": {
-                "type": "string",
-                "description": "Language for homily",
-                "default": "en"
+              "metaphors": {
+                "anyOf": [
+                  {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null
+              },
+              "analogies": {
+                "anyOf": [
+                  {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null
+              },
+              "parables": {
+                "anyOf": [
+                  {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null
               }
-            }
+            },
+            "type": "object"
           }
         },
-        "required": ["liturgical_data"]
+        "required": [
+          "liturgical_data"
+        ],
+        "type": "object"
       },
       "returns": {
-        "type": "object",
+        "additionalProperties": false,
         "properties": {
           "status": {
-            "type": "string",
-            "description": "Operation status",
-            "enum": ["success"]
+            "const": "success",
+            "type": "string"
           },
           "data": {
-            "type": "object",
+            "additionalProperties": false,
             "properties": {
               "homily": {
-                "type": "object",
-                "description": "Generated homily content",
+                "additionalProperties": false,
                 "properties": {
-                  "title": { "type": "string" },
-                  "content": { "type": "string" },
-                  "word_count": { "type": "integer" }
-                }
+                  "introduction": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "title": {
+                        "pattern": "\\S",
+                        "type": "string"
+                      },
+                      "content": {
+                        "pattern": "\\S",
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "title",
+                      "content"
+                    ],
+                    "type": "object"
+                  },
+                  "reading_reflection": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "title": {
+                        "pattern": "\\S",
+                        "type": "string"
+                      },
+                      "content": {
+                        "pattern": "\\S",
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "title",
+                      "content"
+                    ],
+                    "type": "object"
+                  },
+                  "practical_application": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "title": {
+                        "pattern": "\\S",
+                        "type": "string"
+                      },
+                      "content": {
+                        "pattern": "\\S",
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "title",
+                      "content"
+                    ],
+                    "type": "object"
+                  },
+                  "conclusion": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "title": {
+                        "pattern": "\\S",
+                        "type": "string"
+                      },
+                      "content": {
+                        "pattern": "\\S",
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "title",
+                      "content"
+                    ],
+                    "type": "object"
+                  },
+                  "occasion": {
+                    "enum": [
+                      "mass",
+                      "marriage",
+                      "baptism",
+                      "funeral"
+                    ],
+                    "type": "string"
+                  },
+                  "liturgical_date": {
+                    "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "introduction",
+                  "reading_reflection",
+                  "practical_application",
+                  "conclusion",
+                  "occasion",
+                  "liturgical_date"
+                ],
+                "type": "object"
               },
               "sources": {
-                "type": "array",
-                "description": "Theological sources used",
                 "items": {
-                  "type": "object",
-                  "properties": {
-                    "title": { "type": "string" },
-                    "author": { "type": "string" },
-                    "reference": { "type": "string" }
-                  }
-                }
+                  "type": "string"
+                },
+                "type": "array"
               }
-            }
+            },
+            "required": [
+              "homily",
+              "sources"
+            ],
+            "type": "object"
           }
         },
-        "required": ["status", "data"]
+        "required": [
+          "status",
+          "data"
+        ],
+        "type": "object"
       },
       "errors": [
         {
-          "code": "GENERATION_ERROR",
-          "message": "Failed to generate homily",
-          "description": "Error during homily generation process"
+          "code": -32603,
+          "message": "Internal error",
+          "data": {
+            "error_id": "example1"
+          },
+          "condition": "Custom handler rejects input or fails; details are logged server-side only"
         }
       ],
       "examples": {
@@ -175,19 +567,38 @@
           "method": "homily.generate",
           "params": {
             "liturgical_data": {
-              "first_reading": {
-                "reference": "Genesis 12:1-4a",
-                "text": "The Lord said to Abram..."
+              "date": "2026-05-19",
+              "occasion": "mass",
+              "metadata": {
+                "date": "2026-05-19",
+                "occasion": "mass",
+                "season": "Ordinary",
+                "color": "Green",
+                "year_cycle": "A",
+                "sunday_or_weekday": "Weekday"
               },
+              "first_reading": {
+                "reference": "Gc 4,13-17",
+                "text": "First reading text.",
+                "type": "First"
+              },
+              "psalm": {
+                "reference": "Sal 48",
+                "text": "Psalm text.",
+                "type": "Psalm"
+              },
+              "second_reading": null,
               "gospel": {
-                "reference": "John 3:1-17",
-                "text": "Jesus said to Nicodemus..."
+                "reference": "Mc 9,38-40",
+                "text": "Gospel text.",
+                "type": "Gospel"
               }
             },
             "occasion": "mass",
             "preferences": {
-              "style": "contemplative",
-              "length": "medium"
+              "target_audience": "youth",
+              "tone": "conversational",
+              "length": "short"
             }
           }
         },
@@ -198,235 +609,1234 @@
             "status": "success",
             "data": {
               "homily": {
-                "title": "Called to Faith",
-                "content": "Brothers and sisters...",
-                "word_count": 800
+                "introduction": {
+                  "title": "Introduction",
+                  "content": "Introduction: Brothers and sisters, let us reflect on faith."
+                },
+                "reading_reflection": {
+                  "title": "Reflection",
+                  "content": "Reflection: Brothers and sisters, let us reflect on faith."
+                },
+                "practical_application": {
+                  "title": "Application",
+                  "content": "Application: Brothers and sisters, let us reflect on faith."
+                },
+                "conclusion": {
+                  "title": "Conclusion",
+                  "content": "Conclusion: Brothers and sisters, let us reflect on faith."
+                },
+                "occasion": "mass",
+                "liturgical_date": "2026-05-19"
               },
               "sources": [
-                {
-                  "title": "Catechism of the Catholic Church",
-                  "reference": "CCC 1819"
-                }
+                "Catechism of the Catholic Church, CCC 1819"
               ]
             }
           }
+        },
+        "response_error": {
+          "jsonrpc": "2.0",
+          "id": "2",
+          "error": {
+            "code": -32603,
+            "message": "Internal error",
+            "data": {
+              "error_id": "example1"
+            }
+          }
         }
-      }
+      },
+      "semantics": "Occasions must be canonical and agree across request/data/metadata. Missing nested occasions inherit the request. Metadata may be omitted; the producer supplies defaults. Direct Homily input completeness is not strengthened here. Unsupported preference aliases are not part of this contract."
     },
     {
       "name": "homily.refine",
       "description": "Refine an existing homily draft based on feedback",
       "params": {
-        "type": "object",
+        "additionalProperties": false,
         "properties": {
           "liturgical_data": {
-            "type": "object",
-            "description": "Liturgical readings data (optional for refinement)",
+            "additionalProperties": false,
             "properties": {
-              "first_reading": { "type": "object" },
-              "psalm": { "type": "object" },
-              "gospel": { "type": "object" }
-            }
+              "date": {
+                "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+                "type": "string"
+              },
+              "occasion": {
+                "enum": [
+                  "mass",
+                  "marriage",
+                  "baptism",
+                  "funeral"
+                ],
+                "type": "string"
+              },
+              "metadata": {
+                "additionalProperties": false,
+                "properties": {
+                  "date": {
+                    "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+                    "type": "string"
+                  },
+                  "occasion": {
+                    "enum": [
+                      "mass",
+                      "marriage",
+                      "baptism",
+                      "funeral"
+                    ],
+                    "type": "string"
+                  },
+                  "season": {
+                    "type": "string"
+                  },
+                  "color": {
+                    "type": "string"
+                  },
+                  "year_cycle": {
+                    "enum": [
+                      "A",
+                      "B",
+                      "C"
+                    ],
+                    "type": "string"
+                  },
+                  "sunday_or_weekday": {
+                    "enum": [
+                      "Sunday",
+                      "Weekday"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "date",
+                  "season",
+                  "color",
+                  "year_cycle",
+                  "sunday_or_weekday"
+                ],
+                "type": "object"
+              },
+              "first_reading": {
+                "additionalProperties": false,
+                "properties": {
+                  "reference": {
+                    "pattern": "\\S",
+                    "type": "string"
+                  },
+                  "text": {
+                    "pattern": "\\S",
+                    "type": "string"
+                  },
+                  "type": {
+                    "enum": [
+                      "First",
+                      "Second",
+                      "Gospel",
+                      "Psalm",
+                      "Alleluia"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "reference",
+                  "text",
+                  "type"
+                ],
+                "type": "object"
+              },
+              "psalm": {
+                "anyOf": [
+                  {
+                    "additionalProperties": false,
+                    "properties": {
+                      "reference": {
+                        "pattern": "\\S",
+                        "type": "string"
+                      },
+                      "text": {
+                        "pattern": "\\S",
+                        "type": "string"
+                      },
+                      "type": {
+                        "enum": [
+                          "First",
+                          "Second",
+                          "Gospel",
+                          "Psalm",
+                          "Alleluia"
+                        ],
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "reference",
+                      "text",
+                      "type"
+                    ],
+                    "type": "object"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "second_reading": {
+                "anyOf": [
+                  {
+                    "additionalProperties": false,
+                    "properties": {
+                      "reference": {
+                        "pattern": "\\S",
+                        "type": "string"
+                      },
+                      "text": {
+                        "pattern": "\\S",
+                        "type": "string"
+                      },
+                      "type": {
+                        "enum": [
+                          "First",
+                          "Second",
+                          "Gospel",
+                          "Psalm",
+                          "Alleluia"
+                        ],
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "reference",
+                      "text",
+                      "type"
+                    ],
+                    "type": "object"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "gospel": {
+                "additionalProperties": false,
+                "properties": {
+                  "reference": {
+                    "pattern": "\\S",
+                    "type": "string"
+                  },
+                  "text": {
+                    "pattern": "\\S",
+                    "type": "string"
+                  },
+                  "type": {
+                    "enum": [
+                      "First",
+                      "Second",
+                      "Gospel",
+                      "Psalm",
+                      "Alleluia"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "reference",
+                  "text",
+                  "type"
+                ],
+                "type": "object"
+              },
+              "alleluia_verse": {
+                "anyOf": [
+                  {
+                    "additionalProperties": false,
+                    "properties": {
+                      "reference": {
+                        "pattern": "\\S",
+                        "type": "string"
+                      },
+                      "text": {
+                        "pattern": "\\S",
+                        "type": "string"
+                      },
+                      "type": {
+                        "enum": [
+                          "First",
+                          "Second",
+                          "Gospel",
+                          "Psalm",
+                          "Alleluia"
+                        ],
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "reference",
+                      "text",
+                      "type"
+                    ],
+                    "type": "object"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "cached_at": {
+                "format": "date-time",
+                "type": "string"
+              },
+              "source": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "date",
+              "first_reading",
+              "gospel"
+            ],
+            "type": "object"
           },
           "occasion": {
-            "type": "string",
-            "description": "Liturgical occasion type",
-            "default": "mass"
+            "default": "mass",
+            "enum": [
+              "mass",
+              "marriage",
+              "baptism",
+              "funeral"
+            ],
+            "type": "string"
           },
           "preferences": {
-            "type": "object",
-            "description": "User preferences for refinement"
+            "additionalProperties": false,
+            "properties": {
+              "target_audience": {
+                "default": "adults",
+                "enum": [
+                  "adults",
+                  "youth",
+                  "children",
+                  "mixed"
+                ],
+                "type": "string"
+              },
+              "tone": {
+                "default": "formal",
+                "enum": [
+                  "formal",
+                  "conversational",
+                  "poetic",
+                  "consolatory",
+                  "celebratory"
+                ],
+                "type": "string"
+              },
+              "length": {
+                "default": "medium",
+                "enum": [
+                  "short",
+                  "medium",
+                  "long"
+                ],
+                "type": "string"
+              },
+              "themes": {
+                "anyOf": [
+                  {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null
+              },
+              "metaphors": {
+                "anyOf": [
+                  {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null
+              },
+              "analogies": {
+                "anyOf": [
+                  {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null
+              },
+              "parables": {
+                "anyOf": [
+                  {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null
+              }
+            },
+            "type": "object"
           },
           "existing_draft": {
-            "type": "string",
-            "description": "Existing homily draft to refine",
-            "required": true
+            "pattern": "\\S",
+            "type": "string"
           }
         },
-        "required": ["existing_draft"]
+        "required": [
+          "liturgical_data",
+          "existing_draft"
+        ],
+        "type": "object"
       },
       "returns": {
-        "type": "object",
+        "additionalProperties": false,
         "properties": {
           "status": {
-            "type": "string",
-            "enum": ["success"]
+            "const": "success",
+            "type": "string"
           },
           "data": {
-            "type": "object",
+            "additionalProperties": false,
             "properties": {
               "homily": {
-                "type": "object",
-                "description": "Refined homily content",
+                "additionalProperties": false,
                 "properties": {
-                  "title": { "type": "string" },
-                  "content": { "type": "string" },
-                  "word_count": { "type": "integer" }
-                }
+                  "introduction": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "title": {
+                        "pattern": "\\S",
+                        "type": "string"
+                      },
+                      "content": {
+                        "pattern": "\\S",
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "title",
+                      "content"
+                    ],
+                    "type": "object"
+                  },
+                  "reading_reflection": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "title": {
+                        "pattern": "\\S",
+                        "type": "string"
+                      },
+                      "content": {
+                        "pattern": "\\S",
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "title",
+                      "content"
+                    ],
+                    "type": "object"
+                  },
+                  "practical_application": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "title": {
+                        "pattern": "\\S",
+                        "type": "string"
+                      },
+                      "content": {
+                        "pattern": "\\S",
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "title",
+                      "content"
+                    ],
+                    "type": "object"
+                  },
+                  "conclusion": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "title": {
+                        "pattern": "\\S",
+                        "type": "string"
+                      },
+                      "content": {
+                        "pattern": "\\S",
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "title",
+                      "content"
+                    ],
+                    "type": "object"
+                  },
+                  "occasion": {
+                    "enum": [
+                      "mass",
+                      "marriage",
+                      "baptism",
+                      "funeral"
+                    ],
+                    "type": "string"
+                  },
+                  "liturgical_date": {
+                    "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "introduction",
+                  "reading_reflection",
+                  "practical_application",
+                  "conclusion",
+                  "occasion",
+                  "liturgical_date"
+                ],
+                "type": "object"
+              },
+              "sources": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
               }
-            }
+            },
+            "required": [
+              "homily",
+              "sources"
+            ],
+            "type": "object"
           }
         },
-        "required": ["status", "data"]
+        "required": [
+          "status",
+          "data"
+        ],
+        "type": "object"
       },
       "errors": [
         {
-          "code": "REFINE_ERROR",
-          "message": "Failed to refine homily",
-          "description": "Error during homily refinement process"
+          "code": -32603,
+          "message": "Internal error",
+          "data": {
+            "error_id": "example1"
+          },
+          "condition": "Custom handler rejects input or fails; details are logged server-side only"
         }
       ],
       "examples": {
         "request": {
           "jsonrpc": "2.0",
-          "id": "3",
+          "id": "2",
           "method": "homily.refine",
           "params": {
-            "existing_draft": "Brothers and sisters, today we reflect on faith...",
+            "liturgical_data": {
+              "date": "2026-05-19",
+              "occasion": "mass",
+              "metadata": {
+                "date": "2026-05-19",
+                "occasion": "mass",
+                "season": "Ordinary",
+                "color": "Green",
+                "year_cycle": "A",
+                "sunday_or_weekday": "Weekday"
+              },
+              "first_reading": {
+                "reference": "Gc 4,13-17",
+                "text": "First reading text.",
+                "type": "First"
+              },
+              "psalm": {
+                "reference": "Sal 48",
+                "text": "Psalm text.",
+                "type": "Psalm"
+              },
+              "second_reading": null,
+              "gospel": {
+                "reference": "Mc 9,38-40",
+                "text": "Gospel text.",
+                "type": "Gospel"
+              }
+            },
+            "occasion": "mass",
             "preferences": {
-              "style": "expository"
-            }
+              "target_audience": "youth",
+              "tone": "conversational",
+              "length": "short"
+            },
+            "existing_draft": "Brothers and sisters, today we reflect on faith."
           }
         },
         "response": {
           "jsonrpc": "2.0",
-          "id": "3",
+          "id": "2",
           "result": {
             "status": "success",
             "data": {
               "homily": {
-                "title": "The Gift of Faith",
-                "content": "Brothers and sisters, today we reflect deeply on faith...",
-                "word_count": 950
-              }
+                "introduction": {
+                  "title": "Introduction",
+                  "content": "Introduction: Brothers and sisters, let us reflect on faith."
+                },
+                "reading_reflection": {
+                  "title": "Reflection",
+                  "content": "Reflection: Brothers and sisters, let us reflect on faith."
+                },
+                "practical_application": {
+                  "title": "Application",
+                  "content": "Application: Brothers and sisters, let us reflect on faith."
+                },
+                "conclusion": {
+                  "title": "Conclusion",
+                  "content": "Conclusion: Brothers and sisters, let us reflect on faith."
+                },
+                "occasion": "mass",
+                "liturgical_date": "2026-05-19"
+              },
+              "sources": [
+                "Catechism of the Catholic Church, CCC 1819"
+              ]
+            }
+          }
+        },
+        "response_error": {
+          "jsonrpc": "2.0",
+          "id": "2",
+          "error": {
+            "code": -32603,
+            "message": "Internal error",
+            "data": {
+              "error_id": "example1"
             }
           }
         }
-      }
+      },
+      "semantics": "Occasions must be canonical and agree across request/data/metadata. Missing nested occasions inherit the request. Metadata may be omitted; the producer supplies defaults. Direct Homily input completeness is not strengthened here. Unsupported preference aliases are not part of this contract."
     },
     {
       "name": "homily.adjust_tone",
       "description": "Adjust the tone of a homily based on preferences",
       "params": {
-        "type": "object",
+        "additionalProperties": false,
         "properties": {
           "liturgical_data": {
-            "type": "object",
-            "description": "Liturgical readings data (optional)"
+            "additionalProperties": false,
+            "properties": {
+              "date": {
+                "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+                "type": "string"
+              },
+              "occasion": {
+                "enum": [
+                  "mass",
+                  "marriage",
+                  "baptism",
+                  "funeral"
+                ],
+                "type": "string"
+              },
+              "metadata": {
+                "additionalProperties": false,
+                "properties": {
+                  "date": {
+                    "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+                    "type": "string"
+                  },
+                  "occasion": {
+                    "enum": [
+                      "mass",
+                      "marriage",
+                      "baptism",
+                      "funeral"
+                    ],
+                    "type": "string"
+                  },
+                  "season": {
+                    "type": "string"
+                  },
+                  "color": {
+                    "type": "string"
+                  },
+                  "year_cycle": {
+                    "enum": [
+                      "A",
+                      "B",
+                      "C"
+                    ],
+                    "type": "string"
+                  },
+                  "sunday_or_weekday": {
+                    "enum": [
+                      "Sunday",
+                      "Weekday"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "date",
+                  "season",
+                  "color",
+                  "year_cycle",
+                  "sunday_or_weekday"
+                ],
+                "type": "object"
+              },
+              "first_reading": {
+                "additionalProperties": false,
+                "properties": {
+                  "reference": {
+                    "pattern": "\\S",
+                    "type": "string"
+                  },
+                  "text": {
+                    "pattern": "\\S",
+                    "type": "string"
+                  },
+                  "type": {
+                    "enum": [
+                      "First",
+                      "Second",
+                      "Gospel",
+                      "Psalm",
+                      "Alleluia"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "reference",
+                  "text",
+                  "type"
+                ],
+                "type": "object"
+              },
+              "psalm": {
+                "anyOf": [
+                  {
+                    "additionalProperties": false,
+                    "properties": {
+                      "reference": {
+                        "pattern": "\\S",
+                        "type": "string"
+                      },
+                      "text": {
+                        "pattern": "\\S",
+                        "type": "string"
+                      },
+                      "type": {
+                        "enum": [
+                          "First",
+                          "Second",
+                          "Gospel",
+                          "Psalm",
+                          "Alleluia"
+                        ],
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "reference",
+                      "text",
+                      "type"
+                    ],
+                    "type": "object"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "second_reading": {
+                "anyOf": [
+                  {
+                    "additionalProperties": false,
+                    "properties": {
+                      "reference": {
+                        "pattern": "\\S",
+                        "type": "string"
+                      },
+                      "text": {
+                        "pattern": "\\S",
+                        "type": "string"
+                      },
+                      "type": {
+                        "enum": [
+                          "First",
+                          "Second",
+                          "Gospel",
+                          "Psalm",
+                          "Alleluia"
+                        ],
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "reference",
+                      "text",
+                      "type"
+                    ],
+                    "type": "object"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "gospel": {
+                "additionalProperties": false,
+                "properties": {
+                  "reference": {
+                    "pattern": "\\S",
+                    "type": "string"
+                  },
+                  "text": {
+                    "pattern": "\\S",
+                    "type": "string"
+                  },
+                  "type": {
+                    "enum": [
+                      "First",
+                      "Second",
+                      "Gospel",
+                      "Psalm",
+                      "Alleluia"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "reference",
+                  "text",
+                  "type"
+                ],
+                "type": "object"
+              },
+              "alleluia_verse": {
+                "anyOf": [
+                  {
+                    "additionalProperties": false,
+                    "properties": {
+                      "reference": {
+                        "pattern": "\\S",
+                        "type": "string"
+                      },
+                      "text": {
+                        "pattern": "\\S",
+                        "type": "string"
+                      },
+                      "type": {
+                        "enum": [
+                          "First",
+                          "Second",
+                          "Gospel",
+                          "Psalm",
+                          "Alleluia"
+                        ],
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "reference",
+                      "text",
+                      "type"
+                    ],
+                    "type": "object"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "cached_at": {
+                "format": "date-time",
+                "type": "string"
+              },
+              "source": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "date",
+              "first_reading",
+              "gospel"
+            ],
+            "type": "object"
           },
           "occasion": {
-            "type": "string",
-            "description": "Liturgical occasion type",
-            "default": "mass"
+            "default": "mass",
+            "enum": [
+              "mass",
+              "marriage",
+              "baptism",
+              "funeral"
+            ],
+            "type": "string"
           },
           "preferences": {
-            "type": "object",
-            "description": "User preferences for tone adjustment",
+            "additionalProperties": false,
             "properties": {
-              "style": {
-                "type": "string",
-                "description": "Desired tone style"
+              "target_audience": {
+                "default": "adults",
+                "enum": [
+                  "adults",
+                  "youth",
+                  "children",
+                  "mixed"
+                ],
+                "type": "string"
               },
-              "audience": {
-                "type": "string",
-                "description": "Target audience"
+              "tone": {
+                "default": "formal",
+                "enum": [
+                  "formal",
+                  "conversational",
+                  "poetic",
+                  "consolatory",
+                  "celebratory"
+                ],
+                "type": "string"
+              },
+              "length": {
+                "default": "medium",
+                "enum": [
+                  "short",
+                  "medium",
+                  "long"
+                ],
+                "type": "string"
+              },
+              "themes": {
+                "anyOf": [
+                  {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null
+              },
+              "metaphors": {
+                "anyOf": [
+                  {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null
+              },
+              "analogies": {
+                "anyOf": [
+                  {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null
+              },
+              "parables": {
+                "anyOf": [
+                  {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null
               }
-            }
-          }
-        }
-      },
-      "returns": {
-        "type": "object",
-        "properties": {
-          "status": {
-            "type": "string",
-            "enum": ["success"]
+            },
+            "type": "object"
           },
-          "data": {
-            "type": "object",
-            "properties": {
-              "homily": {
-                "type": "object",
-                "description": "Adjusted homily content",
-                "properties": {
-                  "title": { "type": "string" },
-                  "content": { "type": "string" },
-                  "word_count": { "type": "integer" }
-                }
-              }
-            }
+          "existing_draft": {
+            "pattern": "\\S",
+            "type": "string"
           }
         },
-        "required": ["status", "data"]
+        "required": [
+          "liturgical_data",
+          "existing_draft"
+        ],
+        "type": "object"
+      },
+      "returns": {
+        "additionalProperties": false,
+        "properties": {
+          "status": {
+            "const": "success",
+            "type": "string"
+          },
+          "data": {
+            "additionalProperties": false,
+            "properties": {
+              "homily": {
+                "additionalProperties": false,
+                "properties": {
+                  "introduction": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "title": {
+                        "pattern": "\\S",
+                        "type": "string"
+                      },
+                      "content": {
+                        "pattern": "\\S",
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "title",
+                      "content"
+                    ],
+                    "type": "object"
+                  },
+                  "reading_reflection": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "title": {
+                        "pattern": "\\S",
+                        "type": "string"
+                      },
+                      "content": {
+                        "pattern": "\\S",
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "title",
+                      "content"
+                    ],
+                    "type": "object"
+                  },
+                  "practical_application": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "title": {
+                        "pattern": "\\S",
+                        "type": "string"
+                      },
+                      "content": {
+                        "pattern": "\\S",
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "title",
+                      "content"
+                    ],
+                    "type": "object"
+                  },
+                  "conclusion": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "title": {
+                        "pattern": "\\S",
+                        "type": "string"
+                      },
+                      "content": {
+                        "pattern": "\\S",
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "title",
+                      "content"
+                    ],
+                    "type": "object"
+                  },
+                  "occasion": {
+                    "enum": [
+                      "mass",
+                      "marriage",
+                      "baptism",
+                      "funeral"
+                    ],
+                    "type": "string"
+                  },
+                  "liturgical_date": {
+                    "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "introduction",
+                  "reading_reflection",
+                  "practical_application",
+                  "conclusion",
+                  "occasion",
+                  "liturgical_date"
+                ],
+                "type": "object"
+              },
+              "sources": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              }
+            },
+            "required": [
+              "homily",
+              "sources"
+            ],
+            "type": "object"
+          }
+        },
+        "required": [
+          "status",
+          "data"
+        ],
+        "type": "object"
       },
       "errors": [
         {
-          "code": "ADJUST_ERROR",
-          "message": "Failed to adjust tone",
-          "description": "Error during tone adjustment process"
+          "code": -32603,
+          "message": "Internal error",
+          "data": {
+            "error_id": "example1"
+          },
+          "condition": "Custom handler rejects input or fails; details are logged server-side only"
         }
       ],
       "examples": {
         "request": {
           "jsonrpc": "2.0",
-          "id": "4",
+          "id": "2",
           "method": "homily.adjust_tone",
           "params": {
+            "liturgical_data": {
+              "date": "2026-05-19",
+              "occasion": "mass",
+              "metadata": {
+                "date": "2026-05-19",
+                "occasion": "mass",
+                "season": "Ordinary",
+                "color": "Green",
+                "year_cycle": "A",
+                "sunday_or_weekday": "Weekday"
+              },
+              "first_reading": {
+                "reference": "Gc 4,13-17",
+                "text": "First reading text.",
+                "type": "First"
+              },
+              "psalm": {
+                "reference": "Sal 48",
+                "text": "Psalm text.",
+                "type": "Psalm"
+              },
+              "second_reading": null,
+              "gospel": {
+                "reference": "Mc 9,38-40",
+                "text": "Gospel text.",
+                "type": "Gospel"
+              }
+            },
+            "occasion": "mass",
             "preferences": {
-              "style": "narrative",
-              "audience": "youth"
-            }
+              "target_audience": "youth",
+              "tone": "conversational",
+              "length": "short"
+            },
+            "existing_draft": "Brothers and sisters, today we reflect on faith."
           }
         },
         "response": {
           "jsonrpc": "2.0",
-          "id": "4",
+          "id": "2",
           "result": {
             "status": "success",
             "data": {
               "homily": {
-                "title": "A Story of Faith",
-                "content": "Let me tell you a story about faith...",
-                "word_count": 700
-              }
+                "introduction": {
+                  "title": "Introduction",
+                  "content": "Introduction: Brothers and sisters, let us reflect on faith."
+                },
+                "reading_reflection": {
+                  "title": "Reflection",
+                  "content": "Reflection: Brothers and sisters, let us reflect on faith."
+                },
+                "practical_application": {
+                  "title": "Application",
+                  "content": "Application: Brothers and sisters, let us reflect on faith."
+                },
+                "conclusion": {
+                  "title": "Conclusion",
+                  "content": "Conclusion: Brothers and sisters, let us reflect on faith."
+                },
+                "occasion": "mass",
+                "liturgical_date": "2026-05-19"
+              },
+              "sources": [
+                "Catechism of the Catholic Church, CCC 1819"
+              ]
+            }
+          }
+        },
+        "response_error": {
+          "jsonrpc": "2.0",
+          "id": "2",
+          "error": {
+            "code": -32603,
+            "message": "Internal error",
+            "data": {
+              "error_id": "example1"
             }
           }
         }
-      }
+      },
+      "semantics": "Occasions must be canonical and agree across request/data/metadata. Missing nested occasions inherit the request. Metadata may be omitted; the producer supplies defaults. Direct Homily input completeness is not strengthened here. Unsupported preference aliases are not part of this contract."
     }
   ],
   "error_codes": {
-    "PARSE_ERROR": {
-      "code": -32700,
-      "message": "Invalid JSON was received"
-    },
-    "INVALID_REQUEST": {
-      "code": -32600,
-      "message": "The JSON sent is not a valid Request object"
-    },
-    "METHOD_NOT_FOUND": {
-      "code": -32601,
-      "message": "The method does not exist or is not available"
-    },
-    "INVALID_PARAMS": {
-      "code": -32602,
-      "message": "Invalid method parameter(s)"
-    },
-    "INTERNAL_ERROR": {
-      "code": -32603,
-      "message": "Internal JSON-RPC error"
-    },
-    "GENERATION_ERROR": {
-      "code": -32000,
-      "message": "Homily generation failed"
-    },
-    "REFINE_ERROR": {
-      "code": -32001,
-      "message": "Homily refinement failed"
-    },
-    "ADJUST_ERROR": {
-      "code": -32002,
-      "message": "Tone adjustment failed"
-    }
+    "-32603": "Internal error; sanitized custom-handler failure with data.error_id"
+  },
+  "error_semantics": {
+    "custom_root": "Custom method exceptions (unknown method, invalid/missing parameters, unexpected failures) return -32603 Internal error with data.error_id. Typed -32601/-32602 mapping is deferred.",
+    "message_send": "Handler exceptions inside message/send become sanitized error text in the agent reply, not a JSON-RPC error envelope.",
+    "built_in_routes": "Task routing has separate behavior; this contract does not promise custom-handler -32601/-32602 or domain-specific codes."
   }
 }

@@ -129,7 +129,8 @@ def _format_node(state: GraphState, agent: HomilyAgent) -> GraphState:
     """Format response node."""
     homily_state = state["homily_state"]
     updates = agent.format_response(homily_state)
-    
+    if updates.get("error"):
+        homily_state.error = updates["error"]
     return state
 
 

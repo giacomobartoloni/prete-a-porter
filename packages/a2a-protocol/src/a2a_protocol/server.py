@@ -30,6 +30,54 @@ logger = logging.getLogger(__name__)
 AgentHandler = Callable[[str, Dict[str, Any]], Awaitable[Dict[str, Any]]]
 
 
+def _env_flag(name: str) -> bool:
+    return os.environ.get(name, "").strip().lower() in {"1", "true", "yes"}
+
+
+def resolve_basic_auth_credentials(
+    username: Optional[str] = None,
+    password: Optional[str] = None,
+    *,
+    allow_unauthenticated: Optional[bool] = None,
+) -> tuple[Optional[str], Optional[str]]:
+    """Resolve a complete Basic Auth pair for normal A2A HTTP execution.
+
+    A complete pair is required unless unauthenticated mode is explicitly enabled.
+    Partial pairs are always rejected, including under the opt-in development mode.
+    """
+    resolved_user = (
+        username if username is not None else os.environ.get("A2A_BASIC_AUTH_USERNAME")
+    )
+    resolved_password = (
+        password if password is not None else os.environ.get("A2A_BASIC_AUTH_PASSWORD")
+    )
+    # Preserve exact credential bytes. Strip only to reject whitespace-only values.
+    user = resolved_user if resolved_user is not None and resolved_user.strip() else None
+    pwd = (
+        resolved_password
+        if resolved_password is not None and resolved_password.strip()
+        else None
+    )
+
+    if allow_unauthenticated is None:
+        allow_unauthenticated = _env_flag("A2A_ALLOW_UNAUTHENTICATED")
+
+    has_user = user is not None
+    has_password = pwd is not None
+    if has_user != has_password:
+        raise ValueError(
+            "A2A Basic Auth partial credential pair is not allowed; "
+            "set both A2A_BASIC_AUTH_USERNAME and A2A_BASIC_AUTH_PASSWORD"
+        )
+    if not has_user:
+        if allow_unauthenticated:
+            return None, None
+        raise ValueError(
+            "A2A Basic Auth requires a complete username/password pair for HTTP execution"
+        )
+    return user, pwd
+
+
 def _jsonrpc_response(request_id: str, result: Dict[str, Any]) -> Response:
     return Response(
         content=json.dumps({"jsonrpc": "2.0", "id": request_id, "result": result}),
@@ -448,10 +496,11 @@ class A2AServer:
 
         app = FastAPI(title=self.name, version="1.0.0")
 
-        if self._basic_auth_username and self._basic_auth_password:
-            username = self._basic_auth_username
-            password = self._basic_auth_password
-
+        username, password = resolve_basic_auth_credentials(
+            self._basic_auth_username,
+            self._basic_auth_password,
+        )
+        if username and password:
             @app.middleware("http")
             async def auth_middleware(request: Request, call_next):
                 return await self._basic_auth_middleware(

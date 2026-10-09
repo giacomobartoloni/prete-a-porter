@@ -109,7 +109,24 @@ class HomilyAgentHandler:
         preferences = params.get("preferences", {})
         existing_draft = params.get("existing_draft")
 
-        lit_reading = LiturgicalReading(**liturgical_data) if liturgical_data else None
+        if occasion not in ("mass", "marriage", "baptism", "funeral"):
+            raise ValueError(f"Invalid liturgical occasion: {occasion}")
+        if liturgical_data:
+            liturgical_data = dict(liturgical_data)
+            liturgical_data.setdefault("occasion", occasion)
+            if isinstance(liturgical_data.get("metadata"), dict):
+                liturgical_data["metadata"] = dict(liturgical_data["metadata"])
+                liturgical_data["metadata"].setdefault("occasion", occasion)
+            lit_reading = LiturgicalReading(**liturgical_data)
+            if "metadata" not in liturgical_data:
+                lit_reading.metadata.occasion = occasion
+            if lit_reading.occasion != occasion or lit_reading.metadata.occasion != occasion:
+                raise ValueError(
+                    f"Liturgical occasion conflict: request={occasion}, "
+                    f"data={lit_reading.occasion}, metadata={lit_reading.metadata.occasion}"
+                )
+        else:
+            lit_reading = None
         user_prefs = UserPreferences(**preferences) if preferences else UserPreferences()
 
         initial_state = HomilyAgentState(
@@ -126,9 +143,16 @@ class HomilyAgentHandler:
 
         if homily_state.error:
             raise RuntimeError(homily_state.error)
+        if not homily_state.generated_homily:
+            raise RuntimeError("No homily generated")
+        validation = homily_state.validation or {}
+        if validation.get("valid") is False:
+            raise RuntimeError(
+                "; ".join(validation.get("issues") or ["Homily failed structural validation"])
+            )
 
         return {
-            "homily": homily_state.generated_homily.model_dump() if homily_state.generated_homily else None,
+            "homily": homily_state.generated_homily.model_dump(),
             "sources": homily_state.theological_sources or [],
         }
 

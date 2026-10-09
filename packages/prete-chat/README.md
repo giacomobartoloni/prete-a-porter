@@ -25,7 +25,7 @@ packages/prete-chat/
 ## Running
 
 ```bash
-# Whole stack including agents (from the repository root)
+# Base stack plus native UI overlay (from the repository root)
 docker compose -f docker-compose.yml -f deploy/chainlit/docker-compose.chainlit.yml up -d --build
 
 # Native UI
@@ -64,6 +64,15 @@ uv run python scripts/create_user.py --email don@example.com --name "Don Mario"
 The command runs inside the service container (the database publishes no port);
 the operator procedure — interactive and non-interactive forms, semantics and
 verification query — lives in `deploy/chainlit/README.md` → Users.
+
+The bcrypt `password_hash` is persisted server-side in user metadata. The
+`SerializedSQLAlchemyDataLayer.get_user()` getter is a public/session-safe read
+that strips `password_hash`; `get_user_for_auth()` is the dedicated raw,
+auth-only read used by the password verification callback. Keep these getters
+separate: Chainlit reloads the persisted user when resolving authenticated
+sessions and serving `GET /user`. Returning raw metadata from the public getter
+would expose the credential verifier through session metadata or `/user`;
+passing it into the session user would also expose it in the JWT.
 
 ## Branding and language
 

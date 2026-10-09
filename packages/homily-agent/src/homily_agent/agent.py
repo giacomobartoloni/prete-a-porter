@@ -146,26 +146,52 @@ class HomilyAgent:
     
     def validate_homily(self, state: HomilyAgentState) -> Dict[str, Any]:
         """
-        Validate the theological accuracy of a homily.
+        Validate structural completeness of a homily (not theological review).
+
+        Missing/blank section content fails validation. No LLM or theological
+        accuracy checker is run here.
         
         Args:
             state: Current agent state
             
         Returns:
-            Validation result
+            Validation result; includes ``error`` when structure is invalid
         """
-        logger.info("Validating homily")
+        logger.info("Validating homily structure")
+        if state.error:
+            return {"validation": {
+                "valid": False, "issues": [state.error], "kind": "structural"
+            }}
         
         validation_result = {
             "valid": True,
-            "issues": []
+            "issues": [],
+            "kind": "structural",
         }
         
         if state.generated_homily is None:
             validation_result["valid"] = False
             validation_result["issues"].append("No homily to validate")
-            
-        return {"validation": validation_result}
+        else:
+            homily = state.generated_homily
+            for name in (
+                "introduction",
+                "reading_reflection",
+                "practical_application",
+                "conclusion",
+            ):
+                section = getattr(homily, name, None)
+                content = getattr(section, "content", None) if section is not None else None
+                if not isinstance(content, str) or not content.strip():
+                    validation_result["valid"] = False
+                    validation_result["issues"].append(
+                        f"Empty or missing section content: {name}"
+                    )
+
+        updates: Dict[str, Any] = {"validation": validation_result}
+        if not validation_result["valid"]:
+            updates["error"] = "; ".join(validation_result["issues"])
+        return updates
     
     def format_response(self, state: HomilyAgentState) -> Dict[str, Any]:
         """
