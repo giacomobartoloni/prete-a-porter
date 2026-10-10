@@ -21,6 +21,7 @@ from .exceptions import (
     ToolNotFoundException,
 )
 from .state import ChatState
+from .news import search_news
 from .tools import (
     calculate_date,
     generate_homily,
@@ -40,6 +41,7 @@ TOOLS_REGISTRY = {
     "get_liturgical_lectionary": get_liturgical_lectionary,
     "generate_homily": generate_homily,
     "refine_homily": refine_homily,
+    "search_news": search_news,
 }
 
 _graph = None
@@ -92,6 +94,31 @@ async def agent_node(state: ChatState) -> dict:
         ) from e
 
 
+def _news_search_confirmed(state: ChatState) -> bool:
+    """Require a prior assistant permission request and an affirmative user reply.
+
+    This works with the stateless full-history API: no server-side confirmation state.
+    """
+    from langchain_core.messages import AIMessage, HumanMessage
+
+    messages = state.get("messages", [])
+    last_user_index = next((i for i in range(len(messages) - 1, -1, -1)
+                            if isinstance(messages[i], HumanMessage)), -1)
+    if last_user_index < 1:
+        return False
+    reply = str(messages[last_user_index].content).strip().lower()
+    affirmations = {"sì", "si", "yes", "ok", "certo", "procedi", "confermo",
+                    "sì, procedi", "si, procedi", "sì, cerca", "si, cerca",
+                    "va bene", "autorizzo la ricerca"}
+    if reply.rstrip(".!") not in affirmations:
+        return False
+    previous = messages[last_user_index - 1]
+    if not isinstance(previous, AIMessage):
+        return False
+    proposal = str(previous.content).lower()
+    return "vuoi che cerchi online" in proposal or "posso cercare online" in proposal
+
+
 async def tools_node(state: ChatState) -> dict:
     """
     Execute tool calls from the last AI message and return ToolMessages.
@@ -109,6 +136,12 @@ async def tools_node(state: ChatState) -> dict:
         logger.debug("Executing tool", tool_name=tool_name, tool_args=tool_args)
 
         func = TOOLS_REGISTRY.get(tool_name)
+        if tool_name == "search_news" and not _news_search_confirmed(state):
+            tool_messages.append(ToolMessage(
+                content="Ricerca non eseguita: chiedi prima conferma esplicita all'utente.",
+                tool_call_id=tool_call["id"], name=tool_name,
+            ))
+            continue
         if func:
             try:
                 result = await func.ainvoke(tool_args)
