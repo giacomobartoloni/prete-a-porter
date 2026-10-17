@@ -303,18 +303,23 @@ class A2AServer:
         }
         self._tasks[task_id] = task
 
+        final_state = "completed"
         try:
             if cmd["method"]:
                 if cmd["method"] == "agent.ping":
                     result = self._handle_ping()
                 else:
                     result = await self.handler(cmd["method"], cmd["params"])
+                if result.get("status") == "error" or result.get("error"):
+                    final_state = "failed"
                 reply_content = json.dumps(result, indent=2, default=str)
             else:
+                final_state = "failed"
                 reply_content = json.dumps({
                     "error": "Unsupported message format. Send JSON: {\"method\": \"agent.ping\", \"params\": {}}"
                 })
         except Exception as e:
+            final_state = "failed"
             error_id, _, _ = _sanitize_error(e)
             reply_content = json.dumps({"error": f"Internal error {error_id}"})
 
@@ -325,14 +330,14 @@ class A2AServer:
             "parts": [{"text": reply_content}],
         }
 
-        task["status"]["state"] = "completed"
+        task["status"]["state"] = final_state
         task["history"].append(reply_message)
         self._tasks[task_id] = task
 
         return {
             "id": task_id,
             "contextId": context_id,
-            "status": {"state": "completed"},
+            "status": {"state": final_state},
             "history": task["history"],
         }
 

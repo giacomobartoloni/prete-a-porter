@@ -44,6 +44,8 @@ open http://localhost:3003
 | `DATABASE_URL` | `postgresql+asyncpg://…` enables persistence **and** login; anything else keeps POC mode (no history, no auth) |
 | `CHAINLIT_AUTH_SECRET` | signs the session cookie; required with persistence (`openssl rand -hex 32`) |
 | `CHAINLIT_URL` | public URL of the native UI (cookies, redirects) |
+| `OAUTH_GOOGLE_CLIENT_ID` / `OAUTH_GOOGLE_CLIENT_SECRET` | optional Google login; configure both and the email invitation list |
+| `PRETE_CHAT_GOOGLE_ALLOWED_EMAILS` | comma-separated explicit invited Google emails; denies all when empty |
 | `LOG_LEVEL` / `LOG_JSON_FORMAT` | honoured here (`configure_logging()` is called at startup) |
 
 ## Persistence and users
@@ -54,8 +56,11 @@ layer in the service's own PostgreSQL database (schema:
 orchestrator core stays stateless: only user/assistant text is reconstructed as
 model context on resume; tool steps, notices and the welcome message never are.
 
-Accounts are operator-provisioned (Chainlit has no stock signup), with bcrypt
-hashes (cost 10) in the Chainlit user metadata:
+Password accounts are operator-provisioned, with bcrypt hashes (cost 10) in the
+Chainlit user metadata. Optional Google login creates an account on the first
+allowed sign-in; setup and account linking are documented in
+[`deploy/chainlit/README.md`](../../deploy/chainlit/README.md#optional-google-login).
+Google uses the same normalized email identity and preserves password access.
 
 ```bash
 uv run python scripts/create_user.py --email don@example.com --name "Don Mario"

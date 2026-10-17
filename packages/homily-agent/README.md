@@ -2,6 +2,30 @@
 
 Homily generation agent. Communicates via the standard **Google A2A protocol**.
 
+## Current generation capability
+
+The production handler initializes Chroma retrieval, but the generator currently
+builds homily sections from fixed templates. It reports retrieved source names
+without grounding the prose in the retrieved passages. Draft refinement, length,
+audience and tone are not yet implemented as substantive generation behavior.
+Changing embeddings or retrieval alone does not address this limitation.
+
+## Corpus lifecycle and provenance
+
+Ingestion upserts stable document IDs, so rerunning unchanged input does not add
+duplicates and existing IDs receive corrected text. The generic `.txt` loader
+uses relative paths rather than basenames, preserving distinct nested sources.
+Collections created by the old generic loader require an explicit operator-run
+reset/reindex to remove legacy IDs; no automatic migration deletes existing data.
+Likewise, upserting a shorter source does not remove obsolete trailing chunks:
+use a full reset/reindex when the source set or chunk layout changes.
+
+`--reset` now clears an existing collection even in a fresh CLI process.
+Retrieval excludes results without finite distance evidence. Chroma still uses
+the local ONNX MiniLM embedding function; `EMBEDDING_MODEL` on the separate
+sentence-transformers helper does not change this runtime path. Model changes
+require a compatible embedding profile, a separate reindex and quality evaluation.
+
 ## Endpoints
 
 | Method | Endpoint | Description |

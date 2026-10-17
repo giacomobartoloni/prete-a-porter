@@ -343,16 +343,18 @@ metadata.
 **Location**: `packages/homily-agent/src/homily_agent/`
 
 ### Role
-Generates, refines, and validates homily content using Retrieval-Augmented
-Generation (RAG) against a theological knowledge base. Supports occasion-specific
-content, style adaptation, and iterative refinement.
+Exposes generation, refinement and tone-adjustment methods with structural
+validation. The current implementation produces template sections: it retrieves
+source names but does not ground prose in retrieved passages, consume the supplied
+draft, or substantively implement audience, length and tone preferences. Treat
+these as advertised capabilities awaiting implementation, not verified features.
 
 ### Technology
 - **Runtime**: Python 3.12+
 - **Framework**: LangGraph (StateGraph)
-- **LLM**: Dynamic via `create_llm()`
+- **Generation**: fixed templates; no model invocation in `HomilyGenerator`
 - **Vector DB**: ChromaDB (local only)
-- **Embeddings**: sentence-transformers (`all-MiniLM-L6-v2`)
+- **Runtime embeddings**: Chroma ONNX MiniLM on CPU; the separate sentence-transformers helper does not configure this path
 - **Protocol**: A2A (JSON-RPC 2.0 over HTTP)
 
 ### Modules
@@ -378,9 +380,9 @@ Parse Request (extract preferences, set defaults)
  ↓
 RAG Retrieval (query theological knowledge base via ChromaDB)
  ↓
-Outline Generation (intro → reflection → application → conclusion)
+Template Selection (intro → reflection → application → conclusion)
  ↓
-Section Generation (4 sections with occasion-specific templates)
+Section Assembly (4 occasion-specific templates; retrieved passage text unused)
  ↓
 Structural Completeness (nonblank intro/reflection/application/conclusion)
  ↓
@@ -396,7 +398,7 @@ doctrine checker).
 ```
 Query (occasion + themes)
     ↓
-Embedding (sentence-transformers / all-MiniLM-L6-v2)
+Embedding (Chroma ONNX MiniLM / CPU)
     ↓
 Vector Search (ChromaDB, top-k = RAG_TOP_K, min similarity = RAG_MIN_SIMILARITY)
     ↓
@@ -827,7 +829,7 @@ Chainlit. Failures are isolated: a UI crash cannot take down the API.
 | `app.py` | Chainlit entry point: lifecycle hooks (start/resume/message/settings/stop/logout), starters, quota, one boundary log line per turn |
 | `runner.py` | The only core import surface (`application.stream_chat`, rate limiter) — the test seam |
 | `history.py` | Model-visible history: in-session accumulation and `ThreadDict` reconstruction (user/assistant text only) |
-| `auth.py` | Password auth: bcrypt hash (cost 10) in the Chainlit user metadata |
+| `auth.py` | Password auth (bcrypt off the event loop) and optional Google OAuth with verified email, explicit invitations and stable subject binding |
 | `data_layer.py` | `SerializedSQLAlchemyDataLayer`: the bundled layer with statements serialized |
 | `preferences.py` / `actions.py` | Italian controls mapped to `ChatPreferences`; refinement actions composed into user turns |
 | `errors.py` / `labels.py` | Italian status text; tool-step titles |
@@ -840,8 +842,15 @@ Deploy, upgrade and backup procedures live in `deploy/chainlit/README.md`.
 
 **Configuration**: `DATABASE_URL` (`postgresql+asyncpg://…` enables persistence
 **and** login; anything else keeps POC mode), `CHAINLIT_AUTH_SECRET`,
-`CHAINLIT_URL`, `PRETE_CHAT_DB_PASSWORD`, `RATE_LIMIT_DB_PATH` (its own SQLite),
+`CHAINLIT_URL`, `PRETE_CHAT_DB_PASSWORD`, optional `OAUTH_GOOGLE_CLIENT_ID` /
+`OAUTH_GOOGLE_CLIENT_SECRET` and `PRETE_CHAT_GOOGLE_ALLOWED_EMAILS`,
+`RATE_LIMIT_DB_PATH` (its own SQLite),
 plus the shared LLM/A2A/timeout/quota variables. Chainlit is pinned exactly.
+
+Google login setup and linking semantics live in `deploy/chainlit/README.md`
+(“Optional Google login”). Keep the same normalized email identifier for both
+login paths; private password hashes stay server-side and the stored Google
+subject survives password logins.
 
 **Rollback**: stop the overlay (`docker compose … down prete-chat prete-chat-db`);
 the base stack is untouched. Unsetting `DATABASE_URL` runs the service without

@@ -56,57 +56,40 @@ class TestStatementSerialization:
         assert overlap["max"] == 1
 
 
-class TestCreateUserPreservesPasswordHash:
+class TestCreateUser:
     @pytest.mark.asyncio
-    async def test_sanitized_user_does_not_wipe_stored_password_hash(self, monkeypatch):
-        layer = SerializedSQLAlchemyDataLayer(
-            conninfo="postgresql+asyncpg://chainlit:pw@localhost:5432/chainlit"
-        )
-        stored_hash = auth.hash_password("segreta")
-        existing = PersistedUser(
-            id="00000000-0000-0000-0000-000000000001",
-            identifier="don@example.com",
-            createdAt="2026-09-18T00:00:00Z",
-            metadata={
-                auth.NAME_METADATA_KEY: "Don Mario",
-                auth.PASSWORD_METADATA_KEY: stored_hash,
-            },
-        )
-        persisted: list[cl.User] = []
+    async def test_persistence_return_and_input_remain_session_safe(self, monkeypatch):
+        layer = SerializedSQLAlchemyDataLayer(conninfo="postgresql+asyncpg://u:pw@localhost/db")
+        stored_hash = auth.hash_password("password")
 
-        async def fake_get_user(self, identifier: str):
-            assert identifier == "don@example.com"
-            return existing
+        async def execute(query, parameters):
+            return [{"id": "00000000-0000-0000-0000-000000000001",
+                     "identifier": "don@example.com", "createdAt": "2026-10-17",
+                     "metadata": {"name": "Don Mario", "password_hash": stored_hash, "google_id": "subject"}}]
 
-        async def fake_create_user(self, user: cl.User):
-            persisted.append(user)
-            return PersistedUser(
-                id=existing.id,
-                identifier=user.identifier,
-                createdAt=existing.createdAt,
-                display_name=user.display_name,
-                metadata=dict(user.metadata or {}),
-            )
+        monkeypatch.setattr(layer, "execute_sql", execute)
+        user = cl.User(identifier="don@example.com", metadata={"name": "Don Mario"})
+        try:
+            result = await layer.create_user(user)
+            assert auth.PASSWORD_METADATA_KEY not in result.metadata
+            assert result.metadata["google_id"] == "subject"
+            assert user.metadata == {"name": "Don Mario"}
+        finally:
+            await layer.close()
 
-        monkeypatch.setattr(SQLAlchemyDataLayer, "get_user", fake_get_user)
-        monkeypatch.setattr(SQLAlchemyDataLayer, "create_user", fake_create_user)
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("rows", [None, []])
+    async def test_failed_or_conflicting_write_returns_no_user(self, monkeypatch, rows):
+        layer = SerializedSQLAlchemyDataLayer(conninfo="postgresql+asyncpg://u:pw@localhost/db")
 
-        sanitized = cl.User(
-            identifier="don@example.com",
-            display_name="Don Mario",
-            metadata={auth.NAME_METADATA_KEY: "Don Mario"},
-        )
-        assert auth.PASSWORD_METADATA_KEY not in sanitized.metadata
+        async def execute(query, parameters):
+            return rows
 
-        result = await layer.create_user(sanitized)
-
-        assert auth.PASSWORD_METADATA_KEY not in sanitized.metadata
-        assert len(persisted) == 1
-        assert persisted[0].metadata[auth.PASSWORD_METADATA_KEY] == stored_hash
-        assert persisted[0].metadata[auth.NAME_METADATA_KEY] == "Don Mario"
-        # Public return value is session-safe.
-        assert auth.PASSWORD_METADATA_KEY not in result.metadata
-        await layer.close()
+        monkeypatch.setattr(layer, "execute_sql", execute)
+        try:
+            assert await layer.create_user(cl.User(identifier="don@example.com")) is None
+        finally:
+            await layer.close()
 
 
 class TestPublicVersusAuthGetters:

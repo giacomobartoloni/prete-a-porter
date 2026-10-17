@@ -114,6 +114,21 @@ class TestDispatchFromText:
 
 @pytest.mark.asyncio
 class TestHandleSendMessage:
+    @pytest.mark.parametrize("kind", ["exception", "unsupported", "returned_error"])
+    async def test_failed_execution_is_failed_in_reply_get_and_list(self, server, kind):
+        async def fail(method, params):
+            if kind == "exception":
+                raise RuntimeError("private failure details")
+            return {"status": "error", "error": "Generation failed"}
+
+        server.handler = fail
+        text = "unsupported request" if kind == "unsupported" else '{"method":"test.skill","params":{}}'
+        reply = await server._handle_send_message({"id": "failed-task", "message": {"parts": [{"text": text}]}})
+        assert reply["status"]["state"] == "failed"
+        assert server._handle_get_task("failed-task")["status"]["state"] == "failed"
+        assert server._handle_list_tasks()["tasks"] == [{"id": "failed-task", "state": "failed"}]
+        assert "private failure details" not in json.dumps(reply)
+
     async def test_state_is_lowercase_completed(self, server):
         body = {
             "id": "task-1",

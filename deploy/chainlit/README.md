@@ -25,6 +25,8 @@ open http://localhost:3003
 | `CHAINLIT_AUTH_SECRET` | `.env` | signs the session cookie (`openssl rand -hex 32`). Rotating it logs everyone out |
 | `CHAINLIT_URL` | `.env` / overlay | public URL, for cookie and redirect correctness behind Caddy |
 | `DATABASE_URL` | overlay (per service) | `postgresql+asyncpg://chainlit:…@prete-chat-db:5432/chainlit`. The repository `.env` value targets the legacy frontend and is overridden here |
+| `OAUTH_GOOGLE_CLIENT_ID` / `OAUTH_GOOGLE_CLIENT_SECRET` | `.env` | optional Google OAuth Web application credentials; both required together |
+| `PRETE_CHAT_GOOGLE_ALLOWED_EMAILS` | `.env` | explicit comma-separated invited emails; required with Google credentials; compared after trim/lowercase |
 
 Persistence is opt-in in code: only a `postgresql+asyncpg://` URL enables the data
 layer and password authentication. Unsetting it (rollback to the POC) leaves the
@@ -32,11 +34,10 @@ service running without history and without login.
 
 ## Users
 
-Accounts are provisioned by an operator. Chainlit ships **no signup**: no
-registration form, no registration route and no flag to enable (its login page
-offers email + password and the configured OAuth providers, nothing else), so
-`scripts/create_user.py` is the only account-creation path. It stores a bcrypt
-hash in the Chainlit user metadata.
+Password accounts are provisioned by an operator through `scripts/create_user.py`,
+which stores a bcrypt hash in user metadata. Optional Google login lets explicitly
+invited users create their account on first sign-in. Chainlit has no separate
+registration form.
 
 The bcrypt `password_hash` is persisted server-side in user metadata. The
 `SerializedSQLAlchemyDataLayer.get_user()` getter is a public/session-safe read
@@ -101,6 +102,47 @@ row from `users` cascades through `threads` and from there to `steps`,
 `elements` and `feedbacks` (`ON DELETE CASCADE` in `init.sql`).
 
 Then sign in at <http://localhost:3003> with the email and password.
+
+## Optional Google login
+
+The native UI uses [Chainlit's built-in OAuth flow](https://docs.chainlit.io/authentication/oauth).
+The agents and `/v1` API keep their existing authentication.
+
+1. Create a Google Cloud OAuth client of type **Web application** and configure
+   the consent screen for the intended audience. For testing, configure the
+   Google-side test audience as required by your Cloud project.
+2. Register the exact redirect URI `http://localhost:3003/auth/oauth/google/callback`
+   for local use, or `https://<your-host>/auth/oauth/google/callback` for production.
+   Set `CHAINLIT_URL` to the matching origin. Public deployments require HTTPS;
+   HTTP is accepted only for localhost/loopback. Subpath deployment is not supported
+   by this integration.
+3. Set both `OAUTH_GOOGLE_CLIENT_ID` and `OAUTH_GOOGLE_CLIENT_SECRET`, then set
+   `PRETE_CHAT_GOOGLE_ALLOWED_EMAILS=don@example.com,another@example.com` in `.env`.
+   The overlay already loads this file. Credentials, callback URL and invitation
+   list must be configured before starting the service; incomplete setup fails
+   startup. Empty credentials retain password-only operation.
+4. Recreate `prete-chat` with the overlay and sign in with an invited Google
+   account. Check `GET /auth/config` advertises `google` and that the login page
+   offers Google alongside the password form.
+5. Verify an uninvited account is rejected. For an existing password account,
+   sign in with Google, then with its original password, and reopen its history.
+
+The callback requires Google's `verified_email` boolean and stable user `id`.
+It rejects every other provider and never stores access tokens. A first allowed
+login creates a user; a matching normalized email links to the existing account,
+preserving its UUID, history, quota key and server-side password hash. The stored
+Google subject must match on subsequent Google logins, including after a password
+login. Public user responses never include the password hash.
+
+The email invitation list is intentionally explicit: no wildcards, domain suffix
+matching or automatic admission of all Google accounts. Removing an invitation
+blocks future Google logins; it does **not** revoke already issued sessions or
+disable a separately provisioned password. Rotate `CHAINLIT_AUTH_SECRET` if all
+sessions must be invalidated.
+
+Google Cloud credentials, DNS and public routing are operator configuration.
+Unit tests and PostgreSQL callback tests cannot establish that a real Google
+browser roundtrip or the production proxy is configured correctly.
 
 ## Schema and upgrades
 

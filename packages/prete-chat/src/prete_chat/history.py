@@ -9,6 +9,7 @@ from chat_orchestrator.application import ChatMessage
 
 MODEL_VISIBLE_STEP_TYPES = ("user_message", "assistant_message")
 WELCOME_METADATA_KEY = "welcome"
+MODEL_CONTENT_METADATA_KEY = "model_content"
 
 
 def append(turns: list[dict[str, str]], role: str, content: str) -> None:
@@ -46,7 +47,7 @@ def from_thread(thread: dict) -> list[dict[str, str]]:
             # Threads created while the app still sent a programmatic welcome
             # keep it as an assistant step; it is not a model turn (plan §15).
             continue
-        output = step.get("output")
+        output = metadata.get(MODEL_CONTENT_METADATA_KEY, step.get("output"))
         if isinstance(output, str):
             append(turns, "user" if step_type == "user_message" else "assistant", output)
     return turns

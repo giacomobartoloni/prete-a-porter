@@ -1,5 +1,7 @@
 """Model-visible history: accumulation and message building (plan §15)."""
 
+import pytest
+
 from prete_chat import history
 
 
@@ -99,6 +101,17 @@ class TestFromThread:
             ]
         }
         assert history.from_thread(thread) == [{"role": "user", "content": "Ciao"}]
+
+    def test_resume_uses_model_text_without_appended_status_notice(self):
+        thread = {"steps": [{"type": "assistant_message", "output": "Risposta parziale\n\nTimeout",
+                              "metadata": {"model_content": "Risposta parziale"}}]}
+        assert history.from_thread(thread) == [{"role": "assistant", "content": "Risposta parziale"}]
+
+    @pytest.mark.parametrize("step_type", ["user_message", "assistant_message"])
+    def test_resume_ignores_rejected_turn_messages(self, step_type):
+        thread = {"steps": [{"type": step_type, "output": "Quota esaurita",
+                              "metadata": {"model_content": ""}}]}
+        assert history.from_thread(thread) == []
 
 
 # Captured from a real ThreadDict on 2026-09-18 (Chainlit 2.12.0 + the

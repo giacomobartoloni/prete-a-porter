@@ -2,7 +2,7 @@
 
 The bundled SQLAlchemy data layer is the one Chainlit documents for Postgres;
 the schema lives in ``deploy/chainlit/init.sql`` and the operations procedure in
-``deploy/chainlit/README.md``. This module wraps it for three reasons:
+``deploy/chainlit/README.md``. This module wraps it for four reasons:
 
 1. Chainlit fires every step/message write as a separate ``asyncio`` task, and
    the bundled layer's one-fresh-session-per-statement pattern races on that
@@ -17,9 +17,14 @@ the schema lives in ``deploy/chainlit/init.sql`` and the operations procedure in
 3. Credential metadata must stay server-side: Chainlit's ``authenticate_user``
    returns ``data_layer.get_user()`` from ``/user``, so the public getter must
    never expose ``password_hash``. Auth reads use ``get_user_for_auth``.
+4. PostgreSQL atomically merges login profiles and guards the Google subject,
+   preserving credentials and bindings even across concurrent processes.
 """
 
 import asyncio
+import json
+import uuid
+from datetime import UTC, datetime
 from typing import Any
 
 import chainlit as cl
@@ -78,33 +83,33 @@ class SerializedSQLAlchemyDataLayer(SQLAlchemyDataLayer):
         return await super().get_user(identifier)
 
     async def create_user(self, user: cl.User) -> PersistedUser | None:
-        """Persist ``user`` without dropping an existing password hash.
+        """Atomically merge a profile, retaining credentials and Google binding.
 
-        Must not mutate ``user.metadata`` in place: that same object is used to
-        build the session JWT. Uses ``super().get_user`` so the hash is still
-        visible when re-injecting into the persistence path. The returned
-        ``PersistedUser`` is sanitized for any caller that treats the return
-        value as session-visible.
+        PostgreSQL owns concurrency across processes and provisioning commands.
+        A conflicting Google subject or SQL failure returns ``None``. The OAuth
+        callback checks this before allowing Chainlit to issue a session.
         """
-        existing = await super().get_user(user.identifier)
-        metadata = dict(user.metadata or {})
-        if existing is not None:
-            existing_metadata = existing.metadata or {}
-            stored_hash = existing_metadata.get(auth.PASSWORD_METADATA_KEY)
-            if (
-                isinstance(stored_hash, str)
-                and auth.PASSWORD_METADATA_KEY not in metadata
-            ):
-                metadata[auth.PASSWORD_METADATA_KEY] = stored_hash
-        persistence_user = cl.User(
-            identifier=user.identifier,
-            display_name=user.display_name,
-            metadata=metadata,
+        rows = await self.execute_sql(
+            query="""
+                INSERT INTO users ("id", "identifier", "createdAt", "metadata")
+                VALUES (:id, :identifier, :created_at, CAST(:metadata AS JSONB))
+                ON CONFLICT ("identifier") DO UPDATE
+                SET "metadata" = users."metadata" || EXCLUDED."metadata"
+                WHERE users."metadata"->>'google_id' IS NULL
+                   OR EXCLUDED."metadata"->>'google_id' IS NULL
+                   OR users."metadata"->>'google_id' = EXCLUDED."metadata"->>'google_id'
+                RETURNING "id", "identifier", "createdAt", "metadata"
+            """,
+            parameters={
+                "id": str(uuid.uuid4()),
+                "identifier": user.identifier,
+                "created_at": datetime.now(UTC).isoformat(),
+                "metadata": json.dumps(user.metadata or {}),
+            },
         )
-        result = await super().create_user(persistence_user)
-        if result is None:
+        if not isinstance(rows, list) or not rows:
             return None
-        return _sanitize_persisted_user(result)
+        return _sanitize_persisted_user(PersistedUser(**rows[0]))
 
 
 def build() -> SerializedSQLAlchemyDataLayer | None:

@@ -10,7 +10,6 @@ import time
 import uuid
 
 import chainlit as cl
-
 from chat_orchestrator.application import is_visible_token
 from chat_orchestrator.utils.logging import configure_logging, get_logger, set_correlation_id
 
@@ -27,6 +26,8 @@ config.validate()
 if config.persistence_enabled():
     cl.data_layer(data_layer.build)
     cl.password_auth_callback(auth.password_auth)
+    if config.google_oauth_enabled():
+        cl.oauth_callback(auth.google_oauth)
 else:
     logger.warning("persistence disabled: no conversation history and no authentication")
 
@@ -136,7 +137,7 @@ async def on_chat_resume(thread: dict) -> None:
     )
 
 
-async def _answer_turn(user_text: str) -> None:
+async def _answer_turn(user_text: str, user_message: cl.Message | None = None) -> None:
     """Answer one user turn: quota, streamed answer, steps, history, boundary log.
 
     Shared by typed messages and by the refinement action callback, which sends
@@ -151,7 +152,10 @@ async def _answer_turn(user_text: str) -> None:
     quota = await runner.check_quota(user_id)
     refusal = errors.refusal_for(quota)
     if refusal is not None:
-        await cl.Message(content=refusal).send()
+        if user_message is not None:
+            user_message.metadata[history.MODEL_CONTENT_METADATA_KEY] = ""
+            await user_message.update()
+        await cl.Message(content=refusal, metadata={history.MODEL_CONTENT_METADATA_KEY: ""}).send()
         _log_turn(
             user_id=user_id,
             thread_id=thread_id,
@@ -164,7 +168,8 @@ async def _answer_turn(user_text: str) -> None:
 
     turns: list[dict[str, str]] = cl.user_session.get("history") or []
     messages = history.build_messages(turns, user_text)
-    answer = cl.Message(content="", actions=actions.refinement_actions())
+    answer = cl.Message(content="", actions=actions.refinement_actions(),
+                        metadata={history.MODEL_CONTENT_METADATA_KEY: ""})
     await answer.send()
     handler = labels.ItalianLabelsHandler()
     conversation_preferences = preferences.from_settings(cl.user_session.get("chat_settings"))
@@ -186,6 +191,7 @@ async def _answer_turn(user_text: str) -> None:
         # Chainlit's own task handling sees the cancellation (socket.py).
         _append_notice(answer, errors.CANCELLED_MESSAGE_IT)
         outcome = "cancelled"
+        answer.metadata[history.MODEL_CONTENT_METADATA_KEY] = "".join(text_parts)
         await answer.update()
         _record_turns(turns, user_text, text_parts)
         _log_turn(
@@ -205,6 +211,7 @@ async def _answer_turn(user_text: str) -> None:
             logger.error("chat turn failed", request_id=request_id, exc_info=True)
         _append_notice(answer, errors.user_message_for(error))
 
+    answer.metadata[history.MODEL_CONTENT_METADATA_KEY] = "".join(text_parts)
     await answer.update()
     _record_turns(turns, user_text, text_parts)
     _log_turn(
@@ -220,7 +227,7 @@ async def _answer_turn(user_text: str) -> None:
 @cl.on_message
 async def on_message(message: cl.Message) -> None:
     """Answer a typed user message."""
-    await _answer_turn(message.content)
+    await _answer_turn(message.content, user_message=message)
 
 
 @cl.action_callback("refine_homily")
@@ -237,8 +244,9 @@ async def on_refine_homily(action: cl.Action) -> None:
         logger.warning("unknown refinement action", payload=action.payload)
         return
     await action.remove()
-    await cl.Message(content=message_text, type="user_message", author=_user_id()).send()
-    await _answer_turn(message_text)
+    message = cl.Message(content=message_text, type="user_message", author=_user_id())
+    await message.send()
+    await _answer_turn(message_text, user_message=message)
 
 
 @cl.on_stop
