@@ -1,0 +1,168 @@
+"""Compact compiled-graph + handler regressions for structural completeness."""
+
+from __future__ import annotations
+
+from typing import Optional
+from unittest.mock import AsyncMock, MagicMock
+
+import pytest
+
+from homily_agent.generator import HomilyGenerator
+from homily_agent.graph import create_homily_graph
+from homily_agent.main import HomilyAgentHandler
+from homily_agent.rag.retrieval import RetrievalService
+from homily_agent.state import (
+    GeneratedHomily,
+    HomilySection,
+    LiturgicalMetadata,
+    LiturgicalReading,
+    Reading,
+)
+
+
+def _section(content: str) -> HomilySection:
+    return HomilySection(title="t", content=content)
+
+
+def _complete_homily() -> GeneratedHomily:
+    return GeneratedHomily(
+        introduction=_section("intro"),
+        reading_reflection=_section("reflect"),
+        practical_application=_section("apply"),
+        conclusion=_section("end"),
+        occasion="mass",
+        liturgical_date="2026-05-19",
+    )
+
+
+def _liturgical_data() -> dict:
+    return LiturgicalReading(
+        date="2026-05-19",
+        occasion="mass",
+        metadata=LiturgicalMetadata(
+            date="2026-05-19",
+            occasion="mass",
+            season="Ordinary",
+            color="Green",
+            year_cycle="A",
+            sunday_or_weekday="Weekday",
+        ),
+        first_reading=Reading(reference="Gc 4,13-17", text="primo", type="First"),
+        psalm=Reading(reference="Sal 48", text="salmo", type="Psalm"),
+        gospel=Reading(reference="Mc 9,38-40", text="vangelo", type="Gospel"),
+    ).model_dump()
+
+
+class _StubGenerator(HomilyGenerator):
+    def __init__(self, homily: Optional[GeneratedHomily]):
+        super().__init__(retrieval_service=MagicMock(spec=RetrievalService))
+        self._homily = homily
+
+    def generate(self, *args, **kwargs):
+        if self._homily is None:
+            return None, []  # type: ignore[return-value]
+        return self._homily, ["stub-source"]
+
+
+def _handler_with(homily: Optional[GeneratedHomily]) -> HomilyAgentHandler:
+    handler = HomilyAgentHandler.__new__(HomilyAgentHandler)
+    handler.retrieval_service = MagicMock(spec=RetrievalService)
+    handler.graph = create_homily_graph(
+        retrieval_service=handler.retrieval_service,
+        generator=_StubGenerator(homily),
+    )
+    return handler
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("intent", ["generate", "refine", "adjust"])
+async def test_handler_rejects_missing_homily(intent):
+    handler = _handler_with(None)
+    params = {
+        "liturgical_data": _liturgical_data(),
+        "occasion": "mass",
+        "existing_draft": "draft" if intent != "generate" else None,
+    }
+    with pytest.raises(RuntimeError):
+        await handler._invoke_graph(params, intent)  # type: ignore[arg-type]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("intent", ["generate", "refine", "adjust"])
+async def test_handler_rejects_blank_section(intent):
+    blank = _complete_homily()
+    blank.conclusion = _section("   ")
+    handler = _handler_with(blank)
+    params = {
+        "liturgical_data": _liturgical_data(),
+        "occasion": "mass",
+        "existing_draft": "draft" if intent != "generate" else None,
+    }
+    with pytest.raises(RuntimeError, match="conclusion|structur|incomplete|Empty"):
+        await handler._invoke_graph(params, intent)  # type: ignore[arg-type]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("intent", ["generate", "refine", "adjust"])
+async def test_handler_accepts_complete_homily_envelope(intent):
+    handler = _handler_with(_complete_homily())
+    params = {
+        "liturgical_data": _liturgical_data(),
+        "occasion": "mass",
+        "existing_draft": "draft" if intent != "generate" else None,
+    }
+    result = await handler._invoke_graph(params, intent)  # type: ignore[arg-type]
+    assert "homily" in result
+    assert result["homily"]["introduction"]["content"] == "intro"
+    assert result["sources"] == ["stub-source"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("intent", ["generate", "refine", "adjust"])
+@pytest.mark.parametrize("data_occasion", ["mass", "marriage"])
+async def test_handler_rejects_explicit_occasion_conflicts(intent, data_occasion):
+    handler = _handler_with(_complete_homily())
+    handler.graph = MagicMock(ainvoke=AsyncMock(side_effect=AssertionError("conflict reached graph")))
+    data = _liturgical_data()
+    data["occasion"] = data_occasion
+    # Metadata remains mass: both request/data and request/metadata conflicts matter.
+    with pytest.raises(ValueError, match="occasion.*conflict"):
+        await handler._invoke_graph({"occasion": "marriage", "liturgical_data": data}, intent)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("intent", ["generate", "refine", "adjust"])
+@pytest.mark.parametrize("nested", ["consistent", "omitted", "metadata_occasion_omitted"])
+async def test_handler_accepts_coherent_or_absent_ritual_occasions(intent, nested):
+    homily = _complete_homily()
+    homily.occasion = "marriage"
+    handler = _handler_with(homily)
+    data = _liturgical_data()
+    if nested == "omitted":
+        data.pop("occasion")
+        data.pop("metadata")
+    else:
+        data["occasion"] = "marriage"
+        if nested == "metadata_occasion_omitted":
+            data["metadata"].pop("occasion")
+        else:
+            data["metadata"]["occasion"] = "marriage"
+    result = await handler._invoke_graph(
+        {"occasion": "marriage", "liturgical_data": data, "existing_draft": "draft"}, intent
+    )
+    assert result["homily"]["occasion"] == "marriage"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("intent", ["generate", "refine", "adjust"])
+async def test_original_generator_error_survives_graph_validation(monkeypatch, intent):
+    def fail_generation(*args, **kwargs):
+        raise RuntimeError("UNIQUE_ORIGINAL_GENERATOR_FAILURE")
+
+    monkeypatch.setattr(_StubGenerator, "generate", fail_generation)
+    handler = _handler_with(_complete_homily())
+    with pytest.raises(RuntimeError, match="UNIQUE_ORIGINAL_GENERATOR_FAILURE"):
+        await handler._invoke_graph(
+            {"occasion": "mass", "liturgical_data": _liturgical_data(), "existing_draft": "draft"},
+            intent,
+        )

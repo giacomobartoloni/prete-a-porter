@@ -7,11 +7,14 @@ matrix and run in the dedicated CI job.
 
 from __future__ import annotations
 
+import asyncio
+import json
 import os
 import uuid
 
 import chainlit as cl
 import pytest
+from chainlit.data.sql_alchemy import SQLAlchemyDataLayer
 
 from prete_chat import auth, data_layer
 
@@ -47,6 +50,84 @@ async def _provision(layer, email: str, name: str, password: str) -> str:
 
 
 class TestPasswordHashServerSide:
+    @pytest.mark.asyncio
+    async def test_atomic_binding_rejects_second_subject(self, layer):
+        email = f"subject-{uuid.uuid4().hex[:8]}@example.test"
+        first = await layer.create_user(cl.User(identifier=email, metadata={"google_id": "original"}))
+        assert first is not None
+        conflicting = await layer.create_user(cl.User(identifier=email, metadata={"google_id": "other"}))
+        assert conflicting is None
+        assert (await layer.get_user(email)).metadata["google_id"] == "original"
+
+    @pytest.mark.asyncio
+    async def test_concurrent_password_and_google_persistence_retains_binding(self, layer, monkeypatch):
+        identifier = await _provision(layer, f"race-{uuid.uuid4().hex[:8]}@example.test", "User", "password")
+        other_layer = data_layer.build()
+        original_get = SQLAlchemyDataLayer.get_user
+        original_execute = SQLAlchemyDataLayer.execute_sql
+        both_read = asyncio.Event()
+        google_written = asyncio.Event()
+        reads = 0
+
+        async def synchronized_get(self, email):
+            nonlocal reads
+            existing = await original_get(self, email)
+            reads += 1
+            if reads == 2:
+                both_read.set()
+            await asyncio.wait_for(both_read.wait(), timeout=5)
+            return existing
+
+        async def ordered_write(self, query, parameters):
+            # Force password's stale UPDATE after Google's UPDATE in the old
+            # read/merge/write path. Atomic INSERT/ON CONFLICT has no stale read.
+            if query.lstrip().startswith("UPDATE users SET"):
+                google = "google_id" in json.loads(parameters["metadata"])
+                if not google:
+                    await asyncio.wait_for(google_written.wait(), timeout=5)
+                result = await original_execute(self, query, parameters)
+                if google:
+                    google_written.set()
+                return result
+            return await original_execute(self, query, parameters)
+
+        try:
+            with monkeypatch.context() as patch:
+                patch.setattr(SQLAlchemyDataLayer, "get_user", synchronized_get)
+                patch.setattr(SQLAlchemyDataLayer, "execute_sql", ordered_write)
+                await asyncio.gather(
+                    layer.create_user(cl.User(identifier=identifier, metadata={"google_id": "bound-subject"})),
+                    other_layer.create_user(cl.User(identifier=identifier, metadata={"name": "Password user"})),
+                )
+            stored = await layer.get_user_for_auth(identifier)
+            assert stored.metadata["google_id"] == "bound-subject"
+            assert auth.verify_password("password", stored.metadata["password_hash"])
+        finally:
+            await other_layer.close()
+
+    @pytest.mark.asyncio
+    async def test_google_and_password_logins_share_one_account(self, layer, monkeypatch):
+        email = f"google-{uuid.uuid4().hex[:8]}@example.test"
+        identifier = await _provision(layer, email, "Original name", "password-test")
+        before = await layer.get_user_for_auth(identifier)
+        monkeypatch.setenv("PRETE_CHAT_GOOGLE_ALLOWED_EMAILS", email)
+        monkeypatch.setattr(auth, "get_data_layer", lambda: layer)
+        profile = {"id": "google-subject", "email": email.upper(), "verified_email": True, "name": "Google Name"}
+        google_user = await auth.google_oauth("google", "never-persist-this-token", profile, cl.User(identifier=email))
+        assert google_user is not None
+        public = await layer.create_user(google_user)
+        assert public.id == before.id
+        assert "password_hash" not in public.metadata
+        assert "never-persist-this-token" not in str(public.metadata)
+        password_user = await auth.password_auth(email, "password-test")
+        assert password_user is not None
+        await layer.create_user(password_user)
+        after = await layer.get_user_for_auth(identifier)
+        assert after.id == before.id
+        assert after.metadata["password_hash"] == before.metadata["password_hash"]
+        assert after.metadata["google_id"] == "google-subject"
+        assert await auth.google_oauth("google", "token", profile | {"id": "different-subject"}, cl.User(identifier=email)) is None
+
     @pytest.mark.asyncio
     async def test_login_sanitize_preserves_hash_and_allows_second_login(self, layer, monkeypatch):
         email = f"don-{uuid.uuid4().hex[:8]}@example.test"

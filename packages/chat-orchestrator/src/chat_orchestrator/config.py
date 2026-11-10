@@ -55,6 +55,14 @@ WORKFLOW — follow this order and stop at the end:
 2. When the user asks for a homily, call generate_homily ONCE, passing the
    liturgical data exactly as you received it from get_liturgical_readings.
    Do not retype, summarise, or restructure it.
+   Always preserve the user's explicit word count in preferences.target_word_count
+   (integer 50..3000), and their complete request in preferences.instructions,
+   including the celebration name, audience, theme and concrete example.
+   For refinement pass the entire previous homily as existing_draft and the full
+   revision request in preferences.instructions; preserve other still-applicable preferences.
+   For refine_homily, use preference_changes ONLY when the CURRENT user message
+   explicitly changes target_audience or tone. Shortening or replacing an example
+   preserves both; never reset them to defaults. Other edits remain in preferences.instructions.
 3. Present the homily text the tool returned, as it returned it. Do not rewrite
    it, do not replace it with your own composition, and do not call another tool
    afterwards. Your turn ends there.
@@ -62,6 +70,8 @@ WORKFLOW — follow this order and stop at the end:
 Only call refine_homily when the user explicitly asks to change a homily you
 have already presented. Never call the same tool repeatedly to fix an error:
 if a tool reports a problem, tell the user plainly what failed and stop.
+Do not offer to retry the same failed path with more explicit instructions.
+Present the returned prose directly, without technical parameter preambles.
 
 After receiving tool results, respond naturally in the user's language (Italian or English).
 For liturgical readings, format them nicely with the reference, type, and text excerpt.

@@ -9,10 +9,7 @@ from urllib.parse import parse_qs
 
 import jwt
 from fastapi import Request, WebSocket, WebSocketDisconnect
-from langchain_core.messages import AIMessage, HumanMessage
-
-from .exceptions import WebSocketConnectionException, WebSocketMessageException
-from .graph import get_graph
+from .application import run_chat, websocket_history_to_messages
 from .rate_limiter import get_rate_limiter
 from .utils.logging import get_logger, set_correlation_id, clear_correlation_id
 
@@ -114,8 +111,7 @@ async def chat_websocket(websocket: WebSocket, session_id: str) -> None:
                 pass
             return
 
-        graph = await get_graph()
-        await _message_loop(websocket, graph, session_id, user_id, correlation_id)
+        await _message_loop(websocket, session_id, user_id, correlation_id)
     except WebSocketDisconnect:
         logger.info("Client disconnected", session_id=session_id, correlation_id=correlation_id)
     except Exception as e:
@@ -125,8 +121,8 @@ async def chat_websocket(websocket: WebSocket, session_id: str) -> None:
         clear_correlation_id()
 
 
-async def _message_loop(websocket: WebSocket, graph, session_id: str, user_id: str, correlation_id: str) -> None:
-    """Main message receive/respond loop."""
+async def _message_loop(websocket: WebSocket, session_id: str, user_id: str, correlation_id: str) -> None:
+    """Main message receive/respond loop via application.run_chat."""
     message_count = 0
 
     while True:
@@ -147,8 +143,7 @@ async def _message_loop(websocket: WebSocket, graph, session_id: str, user_id: s
             history = []
 
         try:
-            msgs = [HumanMessage(content=h["content"]) for h in history if h.get("content")]
-            msgs.append(HumanMessage(content=text))
+            chat_messages = websocket_history_to_messages(history, text)
 
             limiter = await get_rate_limiter()
             result = await limiter.check_and_increment(user_id)
@@ -171,21 +166,18 @@ async def _message_loop(websocket: WebSocket, graph, session_id: str, user_id: s
                 })
                 continue
 
-            result = await graph.ainvoke(
-                {"messages": msgs, "session_id": session_id, "user_id": user_id},
-                config={"recursion_limit": 15},
-            )
-
-            ai_messages = [m for m in result["messages"] if isinstance(m, AIMessage)]
-            raw_content = ai_messages[-1].content if ai_messages else "No response"
-            if isinstance(raw_content, list):
-                ai_message = "\n".join(
-                    b.get("text", "") for b in raw_content if isinstance(b, dict) and b.get("type") == "text"
-                ) or str(raw_content)
-            elif not isinstance(raw_content, str):
-                ai_message = str(raw_content)
-            else:
-                ai_message = raw_content
+            try:
+                ai_message = await run_chat(chat_messages, session_id=session_id)
+            except TimeoutError:
+                await websocket.send_json({
+                    "type": "error",
+                    "error": {
+                        "code": "MESSAGE_PROCESSING_ERROR",
+                        "message": "Si è verificato un errore nel processare il messaggio. Riprova.",
+                        "correlation_id": correlation_id,
+                    },
+                })
+                continue
 
             await websocket.send_json({
                 "type": "message",

@@ -81,6 +81,8 @@ class UserPreferences(BaseModel):
     target_audience: Literal["adults", "youth", "children", "mixed"] = "adults"
     tone: Literal["formal", "conversational", "poetic", "consolatory", "celebratory"] = "formal"
     length: Literal["short", "medium", "long"] = "medium"
+    target_word_count: int | None = Field(default=None, ge=50, le=3000, strict=True)
+    instructions: str | None = Field(default=None, max_length=4000)
     themes: Optional[list[str]] = None
     metaphors: Optional[list[str]] = None
     analogies: Optional[list[str]] = None

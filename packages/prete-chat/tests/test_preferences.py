@@ -7,9 +7,7 @@ from prete_chat import preferences
 
 class TestFromSettings:
     def test_full_selection_maps_to_the_core_model(self):
-        selected = preferences.from_settings(
-            {"target_audience": "youth", "tone": "poetic", "length": "long"}
-        )
+        selected = preferences.from_settings({"target_audience": "youth", "tone": "poetic", "length": "long"})
         assert selected is not None
         assert selected.model_dump() == {"target_audience": "youth", "tone": "poetic", "length": "long"}
 
@@ -44,3 +42,21 @@ class TestWidgets:
             for label, value in widget.items.items():
                 assert label != value
                 assert value.isascii() and value.islower()
+
+
+def test_changing_only_tone_never_pins_default_audience():
+    selected = preferences.updated_overrides(
+        {}, preferences.INITIAL_VALUES, {"target_audience": "adults", "tone": "conversational", "length": "medium"}
+    )
+    assert selected == {"tone": "conversational"}
+
+
+def test_return_to_adults_is_detected_against_displayed_youth():
+    selected = preferences.updated_overrides(
+        {},
+        {**preferences.INITIAL_VALUES, "target_audience": "youth"},
+        {**preferences.INITIAL_VALUES, "target_audience": "adults"},
+    )
+    assert selected == {"target_audience": "adults"}
+    widgets = preferences.settings_widgets({"target_audience": "youth"})
+    assert widgets[0].initial_value == "youth"

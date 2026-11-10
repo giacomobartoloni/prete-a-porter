@@ -1,5 +1,7 @@
 """Password authentication: bcrypt verification against the persisted hash."""
 
+import threading
+
 import pytest
 from chainlit.user import PersistedUser
 
@@ -64,6 +66,20 @@ class TestNormalizeIdentifier:
 
 
 class TestPasswordAuth:
+    @pytest.mark.asyncio
+    async def test_password_verification_runs_outside_event_loop_thread(self, monkeypatch):
+        event_loop_thread = threading.get_ident()
+        verification_threads = []
+
+        def check(password, stored):
+            verification_threads.append(threading.get_ident())
+            return True
+
+        monkeypatch.setattr(auth, "get_data_layer", lambda: _FakeLayer(_persisted()))
+        monkeypatch.setattr(auth, "verify_password", check)
+        assert await auth.password_auth("don@example.com", "segreta") is not None
+        assert verification_threads and event_loop_thread not in verification_threads
+
     @pytest.mark.asyncio
     async def test_valid_credentials_return_the_user_without_the_password_hash(self, monkeypatch):
         monkeypatch.setattr(auth, "get_data_layer", lambda: _FakeLayer(_persisted()))

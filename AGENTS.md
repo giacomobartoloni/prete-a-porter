@@ -178,8 +178,11 @@ HTTP-only microservices deployment (see ADR-002).
 ### Security
 
 All A2A HTTP requests carry HTTP Basic Auth headers (`A2A_BASIC_AUTH_USERNAME` /
-`A2A_BASIC_AUTH_PASSWORD`). The `/health` endpoint bypasses auth. The A2A server
-validates credentials via `_basic_auth_middleware` in `server.py:401`.
+`A2A_BASIC_AUTH_PASSWORD`). Both values are required for normal HTTP app creation;
+partial pairs fail closed. The `/health` endpoint bypasses auth. Opt-in
+unauthenticated development uses `A2A_ALLOW_UNAUTHENTICATED=true` and still
+rejects partial pairs. The A2A server validates credentials via
+`_basic_auth_middleware` in `server.py`.
 
 ---
 
@@ -227,8 +230,8 @@ degrade with a one-time warning (`anonymous` user, fresh thread id).
 return `504` on expiry, streams emit an in-band `timeout` error before `[DONE]`.
 
 The `/ws/*` path and the Next.js frontend remain until the OpenWebUI cutover is
-verified end to end; see `AgentWorklog` migration plan P6. The WebSocket message
-loop is **not** bounded by `CHAT_REQUEST_TIMEOUT_SECONDS`.
+verified end to end; see `AgentWorklog` migration plan P6. Each WebSocket turn
+uses `application.run_chat` and is bounded by `CHAT_REQUEST_TIMEOUT_SECONDS`.
 
 ### Architecture
 
@@ -262,10 +265,8 @@ graph, which holds no server-side conversation state.
 
 ### Known Issues
 
-- The WebSocket message loop has no timeout on `graph.ainvoke()` — a stuck agent
-  invocation hangs the socket permanently. The `/v1/*` path is bounded by
-  `CHAT_REQUEST_TIMEOUT_SECONDS` (2026-09-18); the legacy loop is not, and retires
-  with the frontend.
+- Both HTTP and legacy WebSocket execution use the shared application timeout.
+  WebSocket timeout errors retain the error-frame contract and allow later turns.
 
 ---
 
@@ -316,6 +317,18 @@ Format Response (A2A JSON-RPC 2.0)
 | `evangelizo.org` | Web scraping | Daily Gospel readings, liturgical calendar |
 | Lectionary JSON | `lectionaries/*.json` | Pre-loaded ritual readings (marriage, baptism, funeral) |
 
+### Calendar / colour inference (bounded)
+
+Sunday Mass requires a complete second reading; weekday Mass may omit it.
+Marriage, baptism and funeral readings retain their ritual-specific selection.
+
+Season and liturgical colour are inferred from the upstream `liturgic_title`
+string (keyword matching) plus a small set of explicit feast exceptions
+(e.g. Pentecost → Red). The A/B/C year cycle advances at First Advent Sunday
+(Sunday on/before 3 December). This is **title-based and limited**: unsupported
+feasts and local calendars are not certified as authoritative Roman Rite
+metadata.
+
 ### Architecture Decisions
 
 | ID | Decision | Rationale |
@@ -330,16 +343,18 @@ Format Response (A2A JSON-RPC 2.0)
 **Location**: `packages/homily-agent/src/homily_agent/`
 
 ### Role
-Generates, refines, and validates homily content using Retrieval-Augmented
-Generation (RAG) against a theological knowledge base. Supports occasion-specific
-content, style adaptation, and iterative refinement.
+Generates and revises Italian homilies using full scripture texts, preferences,
+complete drafts and bounded theological context. Four-section structure and
+approximate word count are validated. Provider failures and persistently invalid
+output fail explicitly; no placeholder template is returned. There is no
+independent theological evaluation or citation-entailment certification.
 
 ### Technology
 - **Runtime**: Python 3.12+
 - **Framework**: LangGraph (StateGraph)
-- **LLM**: Dynamic via `create_llm()`
+- **Generation**: shared provider factory, bounded model calls, validated JSON sections and word count
 - **Vector DB**: ChromaDB (local only)
-- **Embeddings**: sentence-transformers (`all-MiniLM-L6-v2`)
+- **Runtime embeddings**: Chroma ONNX MiniLM on CPU; the separate sentence-transformers helper does not configure this path
 - **Protocol**: A2A (JSON-RPC 2.0 over HTTP)
 
 ### Modules
@@ -349,7 +364,7 @@ content, style adaptation, and iterative refinement.
 | `state.py` | `homily_agent/state.py` | Pydantic models: `HomilyAgentState`, `UserPreferences`, `GeneratedHomily`, `HomilySection` |
 | `agent.py` | `homily_agent/agent.py` | `HomilyAgent` — core logic: parse, generate, refine, validate, format |
 | `graph.py` | `homily_agent/graph.py` | `create_homily_graph()` — LangGraph state machine |
-| `generator.py` | `homily_agent/generator.py` | `HomilyGenerator` — section-based generation engine |
+| `generator.py` / `composition.py` | `homily_agent/` | Shared model factory, bounded context, full-draft rewrite, section/count validation |
 | `main.py` | `homily_agent/main.py` | A2A server entry point |
 | `rag/embeddings.py` | `homily_agent/rag/embeddings.py` | `EmbeddingService` — sentence-transformers wrapper |
 | `rag/retrieval.py` | `homily_agent/rag/retrieval.py` | ChromaDB vector search, configurable top-k/min-similarity |
@@ -360,26 +375,30 @@ content, style adaptation, and iterative refinement.
 
 ```
 Incoming A2A Request (generate / refine / adjust_tone)
-    ↓
+ ↓
 Parse Request (extract preferences, set defaults)
-    ↓
+ ↓
 RAG Retrieval (query theological knowledge base via ChromaDB)
-    ↓
-Outline Generation (intro → reflection → application → conclusion)
-    ↓
-Section Generation (4 sections with occasion-specific templates)
-    ↓
-Theological Validation (verify accuracy and appropriateness)
-    ↓
+ ↓
+Context Assembly (full readings, bounded sources, preferences, existing draft)
+ ↓
+Model Composition (4 sections; one correction for invalid structure/length)
+ ↓
+Structural Completeness + approximate word count (±15%)
+ ↓
 Format Response (A2A JSON-RPC 2.0)
 ```
+
+Validation is **structural only**: missing or blank section content fails the
+graph/handler. There is **no theological evaluation** step (no LLM accuracy or
+doctrine checker).
 
 ### RAG Pipeline
 
 ```
 Query (occasion + themes)
     ↓
-Embedding (sentence-transformers / all-MiniLM-L6-v2)
+Embedding (Chroma ONNX MiniLM / CPU)
     ↓
 Vector Search (ChromaDB, top-k = RAG_TOP_K, min similarity = RAG_MIN_SIMILARITY)
     ↓
@@ -394,7 +413,9 @@ Context Assembly (for LLM prompt)
 |-----------|---------|---------|
 | `target_audience` | `adults`, `youth`, `children`, `mixed` | `adults` |
 | `tone` | `formal`, `conversational`, `poetic`, `consolatory`, `celebratory` | `formal` |
-| `length` | `short` (5-7 min), `medium` (10-12 min), `long` (15+ min) | `medium` |
+| `length` | `short` (650 words), `medium` (1100), `long` (1600) | `medium` |
+| `target_word_count` | Explicit integer 50–3000; overrides length | `None` |
+| `instructions` | Full user request/revision constraints, at most 4000 characters | `None` |
 | `themes` | Array of theme strings | `None` |
 | `metaphors` | Array of metaphor strings | `None` |
 | `analogies` | Array of analogy strings | `None` |
@@ -628,7 +649,7 @@ invoke the agent runtime.
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `DATABASE_PATH` | `/app/data/liturgy_cache.db` | Cache database (Docker path) |
-| `EVANGELIZO_BASE_URL` | `https://evangelizo.org` | Primary scraper source |
+| `EVANGELIZO_BASE_URL` | `https://publication.evangelizo.ws` | Publication API base for daily Mass readings (fixture/CI override) |
 | `CACHE_TTL_SECONDS` | `86400` | Cache freshness (24h) |
 | `AGENT_CONTRACT_PATH` | — | Path to A2A contract JSON |
 | `AGENT_URL` | — | Public URL for this agent |
@@ -640,6 +661,9 @@ invoke the agent runtime.
 | `EMBEDDING_MODEL` | `sentence-transformers/all-MiniLM-L6-v2` | Embedding model for RAG |
 | `RAG_TOP_K` | `5` | Documents to retrieve per query |
 | `RAG_MIN_SIMILARITY` | `0.7` | Minimum cosine similarity threshold |
+| `HOMILY_MODEL_TIMEOUT_SECONDS` | `45` | Provider deadline per composition attempt; SDK retries disabled |
+| `HOMILY_MAX_OUTPUT_TOKENS` | `4096` | Provider output cap, configurable within model limits |
+| `HOMILY_REQUEST_TIMEOUT_SECONDS` | `110` | A2A homily deadline, one HTTP attempt |
 | `AGENT_CONTRACT_PATH` | — | Path to A2A contract JSON |
 | `AGENT_URL` | — | Public URL for this agent |
 
@@ -679,10 +703,10 @@ cd packages/prete-chat && uv run pytest -v
 cd contracts && uv run pytest tests/test_liturgy_contract.py::TestContractCompliance \
                tests/test_homily_contract.py::TestHomilyContractDefinition -v
 
-# --- Contract tests (full suite via Docker Compose) ---
+# --- Deterministic live contracts: use the all-host fixture workflow in contracts/README.md ---
 cd contracts && uv run pytest tests/ -v
 
-# --- Contract tests (services already running) ---
+# --- Compatibility: --no-docker is accepted and is a no-op ---
 cd contracts && uv run pytest tests/ -v --no-docker
 
 # --- With coverage ---
@@ -692,10 +716,10 @@ cd packages/liturgy-agent && uv run python -m pytest --cov=src/liturgy_agent tes
 cd packages/a2a-protocol && uv run pytest tests/test_transport_routes.py -v
 ```
 
-> **Note:** Contract live/E2E tests require running agents. Start them via
-> `docker compose up -d --build liturgy-agent homily-agent chat-orchestrator`
-> or let `conftest.py` manage Docker Compose automatically. See
-> [`contracts/README.md`](contracts/README.md) for env requirements.
+> **Note:** Contract live/E2E tests require explicitly started agents and a
+> deterministic upstream fixture. Follow the all-host workflow in
+> [`contracts/README.md`](contracts/README.md) for ports, credentials and cleanup.
+> `contracts/tests/conftest.py` never manages the shared Compose stack.
 
 ### Test Categories
 
@@ -703,8 +727,8 @@ cd packages/a2a-protocol && uv run pytest tests/test_transport_routes.py -v
 |------|-------|----------|-------|
 | Unit | Individual modules, isolated | `packages/*/tests/` | Fast, no external dependencies, uses mocks |
 | Contract definition | Static JSON contract validation | `contracts/tests/test_*_contract.py` | No agents needed; validates fields, methods, error codes |
-| Live agent | A2A message/send against running agent | `contracts/tests/test_*_contract.py` | Requires agents on ports 8001/8002; skips if unreachable |
-| E2E | Full user → chat → agent flows | `contracts/tests/test_*_e2e.py` | Requires Docker Compose or `--no-docker` with running services |
+| Live agent | A2A message/send against running agent | `contracts/tests/test_*_contract.py` | Required services/capabilities fail if unavailable; only real upstream checks are opt-in |
+| E2E | Full user → chat → agent flows | `contracts/tests/test_*_e2e.py` | Requires an explicitly started test stack; fixtures never manage Compose |
 
 ### CI
 
@@ -730,11 +754,11 @@ reference.
 | 7 | Important | Vatican scraper fetched static URL regardless of date | `liturgy-agent/scrapers.py` | **Resolved** (2026-05-19): dead code removed |
 | 9 | Important | Bible abbreviations inconsistent: liturgy uses `"Gn"`, homily uses `"Gen"` | `agent.py:259` vs `bible-parser.py:34` | Active |
 | 10 | Cleanup | `langchain-fireworks` removed — Fireworks now uses `ChatOpenAI` | `llm.py` | **Resolved** (2026-05-26) |
-| 11 | Important | `_format_node` calls `format_response()` but discards return value | `homily-agent/graph.py:128-133` | Active — same pattern as #5 |
+| 11 | Important | `_format_node` does not persist successful `formatted_text` | `homily-agent/graph.py` | **Partially Resolved** (2026-10-08): errors propagate; successful formatted text remains unused |
 | 12 | Important | `_chunk_text` never terminates if `overlap >= chunk_size` | `homily-agent/rag/retrieval.py:258` | Active |
-| 13 | Important | `LiturgicalReading(**data)` raises unhandled Pydantic `ValidationError` on bad scraped data | `liturgy-agent/agent.py:487` | Active |
-| 14 | Minor | `datetime.utcnow()` deprecated in Python 3.12 | `liturgy-agent/cache.py:94` | Active |
-| 15 | Important | Homily generation/refinement fails when the model retypes the readings payload with `occasion: "sunday"`: `LiturgicalReading.occasion` only accepts `mass|marriage|baptism|funeral`, and the tool error is handed back to the LLM as text (observed twice in the Chainlit walkthrough, codes `5865a0d1`/`ee41a6a9`/`ca35fde1`) | `homily-agent/main.py:112` | Active |
+| 13 | Important | Raw Pydantic conversion of liturgical dictionaries | `liturgy-agent/agent.py:agent_node` | **Partially Resolved** (2026-10-08): daily upstream shapes/completeness use controlled `ScraperError`, poisoned cache rows invalidate; legacy graph conversion remains |
+| 14 | Minor | `datetime.utcnow()` deprecated in Python 3.12 | `liturgy-agent/cache.py` | **Resolved** (2026-10-08): cache uses `datetime.now(timezone.utc)` |
+| 15 | Important | Noncanonical occasions in model-built homily requests | `chat-orchestrator/tools.py` | **Resolved** (2026-10-08): sunday/weekday/daily normalize to mass; explicit conflicting nested occasions are rejected |
 
 ### Technical Risks
 
@@ -743,7 +767,7 @@ reference.
 | LLM provider API outage | All agents stop responding | Graceful degradation: cached readings still served, homily generation fails |
 | ChromaDB corruption | RAG returns empty results | `reset_collection()` method available; periodic re-indexing |
 | WebSocket connection leak | Orphaned connections consume resources | Heartbeat mechanism not yet implemented (see code review report) |
-| Graph execution timeout | Request hangs indefinitely | `/v1` requests are bounded by `CHAT_REQUEST_TIMEOUT_SECONDS` (504 or in-band timeout error); the transitional WebSocket loop remains unbounded |
+| Graph execution timeout | Slow or stuck invocation | Shared `application.run_chat` bounds HTTP/legacy WebSocket turns with `CHAT_REQUEST_TIMEOUT_SECONDS`; adapters return their existing timeout/error frames |
 
 ### Non-Architectural Issues
 
@@ -756,8 +780,8 @@ Issues affecting frontend, Docker, E2E, or infrastructure are tracked in the
 | Frontend | No WebSocket heartbeat/ping mechanism |
 | Frontend | `prose-liturgy` Tailwind class does nothing |
 | Docker | Hardcoded filesystem path in `contracts/pyproject.toml` |
-| E2E | 401 Unauthorized (Basic Auth credentials not sent by test helpers) |
-| E2E | Docker health check timeout (120s insufficient) |
+| E2E | Required A2A calls use matching Basic Auth helpers; deterministic authenticated contracts run in CI |
+| E2E | Services start explicitly; bounded `wait_for_health.py` fails on readiness exhaustion; pytest never tears down Compose |
 
 ---
 
@@ -807,10 +831,11 @@ Chainlit. Failures are isolated: a UI crash cannot take down the API.
 
 | Module | Purpose |
 |---|---|
+| `presentation.py` | Transient progress, lazy timestamped answer, completion-only actions and interruption handling |
 | `app.py` | Chainlit entry point: lifecycle hooks (start/resume/message/settings/stop/logout), starters, quota, one boundary log line per turn |
 | `runner.py` | The only core import surface (`application.stream_chat`, rate limiter) — the test seam |
 | `history.py` | Model-visible history: in-session accumulation and `ThreadDict` reconstruction (user/assistant text only) |
-| `auth.py` | Password auth: bcrypt hash (cost 10) in the Chainlit user metadata |
+| `auth.py` | Password auth (bcrypt off the event loop) and optional Google OAuth with verified email, explicit invitations and stable subject binding |
 | `data_layer.py` | `SerializedSQLAlchemyDataLayer`: the bundled layer with statements serialized |
 | `preferences.py` / `actions.py` | Italian controls mapped to `ChatPreferences`; refinement actions composed into user turns |
 | `errors.py` / `labels.py` | Italian status text; tool-step titles |
@@ -823,8 +848,15 @@ Deploy, upgrade and backup procedures live in `deploy/chainlit/README.md`.
 
 **Configuration**: `DATABASE_URL` (`postgresql+asyncpg://…` enables persistence
 **and** login; anything else keeps POC mode), `CHAINLIT_AUTH_SECRET`,
-`CHAINLIT_URL`, `PRETE_CHAT_DB_PASSWORD`, `RATE_LIMIT_DB_PATH` (its own SQLite),
+`CHAINLIT_URL`, `PRETE_CHAT_DB_PASSWORD`, optional `OAUTH_GOOGLE_CLIENT_ID` /
+`OAUTH_GOOGLE_CLIENT_SECRET` and `PRETE_CHAT_GOOGLE_ALLOWED_EMAILS`,
+`RATE_LIMIT_DB_PATH` (its own SQLite),
 plus the shared LLM/A2A/timeout/quota variables. Chainlit is pinned exactly.
+
+Google login setup and linking semantics live in `deploy/chainlit/README.md`
+(“Optional Google login”). Keep the same normalized email identifier for both
+login paths; private password hashes stay server-side and the stored Google
+subject survives password logins.
 
 **Rollback**: stop the overlay (`docker compose … down prete-chat prete-chat-db`);
 the base stack is untouched. Unsetting `DATABASE_URL` runs the service without

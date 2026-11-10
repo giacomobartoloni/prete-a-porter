@@ -1,18 +1,22 @@
 """
 Shared fixtures for end-to-end tests.
 
-Handles Docker Compose lifecycle and provides URL fixtures
-for all agent services.
+Provides URL fixtures for agent services. Contract tests never start, stop,
+or delete the shared Docker Compose stack; start the test services explicitly
+before running live/E2E layers.
 """
 
-import json
+import base64
 import os
-import subprocess
-import time
 
 import pytest
 
 PROJECT_ROOT = os.path.normpath(os.path.join(os.path.dirname(__file__), "../.."))
+
+# Disposable credentials for required A2A HTTP auth in tests/CI.
+# Never overwrite operator-provided values from the environment or .env.
+DISPOSABLE_A2A_USERNAME = "a2a-test"
+DISPOSABLE_A2A_PASSWORD = "a2a-test-secret"
 
 
 def _load_env():
@@ -34,7 +38,54 @@ def _load_env():
                 os.environ[key] = value
 
 
+def _nonblank_credential(value: str | None) -> str | None:
+    """Return exact credential bytes, or None when absent/whitespace-only."""
+    if value is None or not value.strip():
+        return None
+    return value
+
+
+def _ensure_complete_a2a_test_credentials() -> None:
+    user = _nonblank_credential(os.environ.get("A2A_BASIC_AUTH_USERNAME"))
+    password = _nonblank_credential(os.environ.get("A2A_BASIC_AUTH_PASSWORD"))
+    if user and password:
+        return
+    if user or password:
+        # Leave partial pairs alone so fail-closed server/client behaviour surfaces.
+        return
+    os.environ["A2A_BASIC_AUTH_USERNAME"] = DISPOSABLE_A2A_USERNAME
+    os.environ["A2A_BASIC_AUTH_PASSWORD"] = DISPOSABLE_A2A_PASSWORD
+
+
 _load_env()
+_ensure_complete_a2a_test_credentials()
+
+
+def a2a_auth_headers() -> dict[str, str]:
+    """HTTP Basic Auth headers matching the required A2A credential pair."""
+    user = _nonblank_credential(os.environ.get("A2A_BASIC_AUTH_USERNAME"))
+    password = _nonblank_credential(os.environ.get("A2A_BASIC_AUTH_PASSWORD"))
+    if not user or not password:
+        return {}
+    token = base64.b64encode(f"{user}:{password}".encode()).decode()
+    return {"Authorization": f"Basic {token}"}
+
+
+def a2a_post(url: str, **kwargs):
+    """POST with required A2A Basic Auth headers."""
+    import httpx
+
+    headers = {**a2a_auth_headers(), **kwargs.pop("headers", {})}
+    return httpx.post(url, headers=headers, **kwargs)
+
+
+async def a2a_apost(url: str, **kwargs):
+    """Async POST with required A2A Basic Auth headers."""
+    import httpx
+
+    headers = {**a2a_auth_headers(), **kwargs.pop("headers", {})}
+    async with httpx.AsyncClient(timeout=kwargs.pop("timeout", 15.0)) as client:
+        return await client.post(url, headers=headers, **kwargs)
 
 
 def pytest_addoption(parser):
@@ -42,79 +93,63 @@ def pytest_addoption(parser):
         "--no-docker",
         action="store_true",
         default=False,
-        help="Skip Docker Compose lifecycle (assume services are already running)",
+        help=(
+            "Compatibility flag: contract fixtures never manage Docker Compose. "
+            "Start the test stack explicitly before live/E2E runs."
+        ),
     )
 
 
 def pytest_configure(config):
     config.addinivalue_line("markers", "slow: marks tests as slow (deselect with '-m \"not slow\"')")
+    config.addinivalue_line(
+        "markers",
+        "optional_live: live upstream/LLM checks; require PRETE_RUN_OPTIONAL_LIVE=1",
+    )
 
 
-def _wait_for_healthy(timeout: int = 120):
-    """Poll docker compose ps until all agent services are healthy."""
-    deadline = time.time() + timeout
-    while time.time() < deadline:
-        result = subprocess.run(
-            ["docker", "compose", "ps", "--format", "json"],
-            capture_output=True, text=True, cwd=PROJECT_ROOT,
-        )
-        lines = [l for l in result.stdout.strip().split("\n") if l]
-        if not lines:
-            time.sleep(3)
-            continue
-        try:
-            services = [json.loads(line) for line in lines]
-        except json.JSONDecodeError:
-            time.sleep(3)
-            continue
-
-        agent_services = [s for s in services if s.get("Service") not in ("a2a-inspector",)]
-        all_healthy = all(s.get("Health") == "healthy" for s in agent_services if "Health" in s)
-        if all_healthy:
-            return
-        time.sleep(3)
-
-    pytest.fail("Services did not become healthy within {timeout}s")
+def require_optional_live() -> None:
+    """Skip unless the operator explicitly opted into live upstream/LLM checks."""
+    if os.environ.get("PRETE_RUN_OPTIONAL_LIVE", "").strip().lower() not in {
+        "1",
+        "true",
+        "yes",
+    }:
+        pytest.skip("optional live check; set PRETE_RUN_OPTIONAL_LIVE=1 to run")
 
 
 @pytest.fixture(scope="session")
 def docker_compose(request):
-    """Start all services before test session, stop after."""
-    if request.config.getoption("--no-docker"):
-        yield
-        return
+    """Require an explicitly started test stack; never manage Compose lifecycle.
 
-    subprocess.run(
-        ["docker", "compose", "up", "-d", "--build"],
-        check=True, cwd=PROJECT_ROOT,
-    )
-    _wait_for_healthy()
+    `--no-docker` remains accepted for compatibility and has the same behaviour.
+    """
+    _ = request.config.getoption("--no-docker")
     yield
-    subprocess.run(
-        ["docker", "compose", "down", "-v"],
-        check=True, cwd=PROJECT_ROOT,
-    )
 
 
 @pytest.fixture(scope="module")
 def _ensure_docker(docker_compose):
-    """Ensure Docker services are running (depends on session-scoped docker_compose)."""
+    """Mark live/E2E modules as depending on an explicitly started stack."""
     pass
 
 
 @pytest.fixture
 def liturgy_url(_ensure_docker):
-    return "http://localhost:8001"
+    return os.environ.get("A2A_LITURGY_URL", "http://localhost:8001").rstrip("/")
 
 
 @pytest.fixture
 def homily_url(_ensure_docker):
-    return "http://localhost:8002"
+    return os.environ.get("A2A_HOMILY_URL", "http://localhost:8002").rstrip("/")
 
 
 @pytest.fixture
 def chat_url(_ensure_docker):
-    return "http://localhost:8000"
+    return os.environ.get(
+        "CHAT_ORCHESTRATOR_URL",
+        os.environ.get("A2A_CHAT_URL", "http://localhost:8000"),
+    ).rstrip("/")
 
 
 MOCK_LITURGICAL_DATA = {

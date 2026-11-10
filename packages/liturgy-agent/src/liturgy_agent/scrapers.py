@@ -10,6 +10,7 @@ degradation to lectionary data when web services are unavailable.
 
 import asyncio
 import logging
+import os
 from datetime import datetime, timedelta
 from typing import Optional
 import re
@@ -36,6 +37,43 @@ class ScraperError(Exception):
     pass
 
 
+def assert_complete_mass_reading(reading: "LiturgicalReading") -> "LiturgicalReading":
+    """Require complete readings, including the second reading for Sunday Mass.
+
+    A present second reading must also have nonblank reference and text.
+    """
+    from .state import LiturgicalReading  # local import for type/runtime check
+
+    if not isinstance(reading, LiturgicalReading):
+        raise ScraperError("Incomplete Mass readings: expected LiturgicalReading")
+
+    required = (
+        ("first_reading", reading.first_reading),
+        ("psalm", reading.psalm),
+        ("gospel", reading.gospel),
+    )
+    if reading.occasion == "mass" and reading.metadata.sunday_or_weekday == "Sunday":
+        required += (("second_reading", reading.second_reading),)
+    for name, entry in required:
+        if entry is None:
+            raise ScraperError(f"Incomplete Mass readings: missing required {name}")
+        ref = (entry.reference or "").strip()
+        text = (entry.text or "").strip()
+        if not ref or not text:
+            raise ScraperError(
+                f"Incomplete Mass readings: required {name} has blank reference or text"
+            )
+
+    if reading.second_reading is not None:
+        ref = (reading.second_reading.reference or "").strip()
+        text = (reading.second_reading.text or "").strip()
+        if not ref or not text:
+            raise ScraperError(
+                "Incomplete Mass readings: second_reading is present but incomplete"
+            )
+    return reading
+
+
 class EvangelizeScraper:
     """
     Scraper for evangelizo.org - official Vatican daily readings source.
@@ -54,7 +92,10 @@ class EvangelizeScraper:
     RETRY_DELAY = 2  # seconds
     
     def __init__(self):
-        """Initialize the Evangelizo scraper."""
+        """Initialize the Evangelizo scraper.
+
+        ``EVANGELIZO_BASE_URL`` overrides the publication API base (fixtures/CI).
+        """
         if not HAS_HTTPX:
             raise ScraperError(
                 "httpx is required for Evangelizo scraper. "
@@ -62,6 +103,9 @@ class EvangelizeScraper:
             )
         if not HAS_BS4:
             logger.warning("beautifulsoup4 not available; HTML fallback disabled")
+        override = os.environ.get("EVANGELIZO_BASE_URL", "").strip()
+        if override:
+            self.API_BASE_URL = override.rstrip("/")
     
     async def fetch_daily_gospel(self, date: Optional[datetime] = None) -> dict:
         """
@@ -106,7 +150,7 @@ class EvangelizeScraper:
                     payload = response.json()
                     return self._parse_daily_gospel_api(payload, date_str)
             
-            except httpx.HTTPError as e:
+            except (httpx.HTTPError, httpx.RequestError, OSError) as e:
                 logger.warning(
                     "Scraping error: %s (attempt %s/%s)",
                     e,
@@ -116,30 +160,11 @@ class EvangelizeScraper:
                 if attempt < self.MAX_RETRIES - 1:
                     await asyncio.sleep(self.RETRY_DELAY)
                     continue
-                if attempt >= self.MAX_RETRIES - 1:
-                    if HAS_BS4:
-                        logger.info("API failed; attempting HTML fallback")
-                        return await self._fetch_daily_gospel_html(date_str)
-                    raise ScraperError(
-                        f"Failed to fetch from {api_url} after {self.MAX_RETRIES} attempts: {e}"
-                    ) from e
+                raise ScraperError(
+                    f"Failed to fetch from {api_url} after {self.MAX_RETRIES} attempts: {e}"
+                ) from e
         
         raise ScraperError("Unexpected error in Evangelizo scraper")
-
-    async def _fetch_daily_gospel_html(self, date_str: str) -> dict:
-        """
-        Fallback HTML fetch for the daily Gospel page.
-        """
-        if not HAS_BS4:
-            raise ScraperError("beautifulsoup4 is required for HTML fallback")
-
-        url = f"{self.BASE_URL}/{self.LANG_CODE}/gospel/{date_str}/"
-        async with httpx.AsyncClient(timeout=self.TIMEOUT) as client:
-            logger.info("Scraping request: GET %s (HTML fallback)", url)
-            response = await client.get(url, follow_redirects=True)
-            logger.info("Scraping response: %s %s", response.status_code, url)
-            response.raise_for_status()
-            return self._parse_daily_gospel(response.text, date_str)
 
     def _parse_daily_gospel_api(self, payload: dict, date_str: str) -> dict:
         """
@@ -151,58 +176,141 @@ class EvangelizeScraper:
             data.liturgy     – liturgical title/description
             data.commentary  – daily commentary with author
         """
+        if not isinstance(payload, dict):
+            raise ScraperError(
+                f"Malformed upstream payload schema/shape for {date_str}: expected object"
+            )
         data = payload.get("data", payload)
+        if not isinstance(data, dict):
+            raise ScraperError(
+                f"Malformed upstream data schema/shape for {date_str}: expected object"
+            )
         readings = data.get("readings", [])
+        if not isinstance(readings, list):
+            raise ScraperError(
+                f"Malformed upstream readings schema/shape for {date_str}: expected list"
+            )
 
         # Strip inline verse markers such as [[Ex 17,3]]
         def _strip_markers(text: str) -> str:
             return re.sub(r'\[\[.*?\]\]', '', text or "").strip()
 
         def _parse_entry(r: dict) -> dict:
+            if not isinstance(r, dict):
+                raise ScraperError(
+                    f"Malformed upstream reading schema/shape for {date_str}"
+                )
             book = r.get("book") or {}
+            if not isinstance(book, dict):
+                raise ScraperError(
+                    f"Malformed upstream book schema/shape for {date_str}"
+                )
             book_title = book.get("full_title") or ""
-            reference_displayed = r.get("reference_displayed") or ""
+            if book_title is not None and not isinstance(book_title, str):
+                raise ScraperError(
+                    f"Malformed upstream book schema/shape for {date_str}"
+                )
+            reference_displayed = r.get("reference_displayed")
+            if reference_displayed is None:
+                reference_displayed = ""
+            elif not isinstance(reference_displayed, str):
+                raise ScraperError(
+                    f"Malformed upstream reference_displayed schema/shape for {date_str}"
+                )
+            reading_code = r.get("reading_code")
+            if reading_code is None:
+                reading_code = ""
+            elif not isinstance(reading_code, str):
+                raise ScraperError(
+                    f"Malformed upstream reading_code schema/shape for {date_str}"
+                )
+            title = r.get("title")
+            if title is None:
+                title = book_title
+            elif not isinstance(title, str):
+                raise ScraperError(
+                    f"Malformed upstream title schema/shape for {date_str}"
+                )
             reference = f"{book_title} {reference_displayed}".strip()
             return {
                 "reference": reference,
-                "reading_code": r.get("reading_code") or "",
-                "title": r.get("title") or book_title,
-                "text": _strip_markers(r.get("text")),
+                "reading_code": reading_code,
+                "title": title or book_title,
+                "text": _strip_markers(r.get("text") if isinstance(r.get("text"), str) else ""),
                 "audio_url": r.get("audio_url"),
             }
 
         # Separate readings by book_type, preserving document order
-        plain_readings = [r for r in readings if r.get("book_type") == "reading"]
-        psalm_entry   = next((r for r in readings if r.get("book_type") == "psalm"), None)
-        gospel_entry  = next((r for r in readings if r.get("book_type") == "gospel"), None)
+        plain_readings = [r for r in readings if isinstance(r, dict) and r.get("book_type") == "reading"]
+        psalm_entry   = next((r for r in readings if isinstance(r, dict) and r.get("book_type") == "psalm"), None)
+        gospel_entry  = next((r for r in readings if isinstance(r, dict) and r.get("book_type") == "gospel"), None)
 
         if not gospel_entry:
             raise ScraperError(f"No gospel reading found for {date_str}")
+        if not plain_readings:
+            raise ScraperError(f"No first reading found for {date_str}")
+        if not psalm_entry:
+            raise ScraperError(f"No psalm reading found for {date_str}")
 
-        first_reading  = _parse_entry(plain_readings[0]) if len(plain_readings) >= 1 else None
+        first_reading  = _parse_entry(plain_readings[0])
         second_reading = _parse_entry(plain_readings[1]) if len(plain_readings) >= 2 else None
-
-        psalm = None
-        if psalm_entry:
-            psalm = _parse_entry(psalm_entry)
-            psalm["chorus"] = psalm_entry.get("chorus") or ""
-
+        psalm = _parse_entry(psalm_entry)
+        psalm["chorus"] = psalm_entry.get("chorus") or ""
         gospel = _parse_entry(gospel_entry)
 
+        for name, entry in (
+            ("first_reading", first_reading),
+            ("psalm", psalm),
+            ("gospel", gospel),
+        ):
+            if not (entry.get("reference") or "").strip() or not (entry.get("text") or "").strip():
+                raise ScraperError(
+                    f"Incomplete Mass readings from upstream: blank {name} for {date_str}"
+                )
+
         # Liturgical metadata
-        liturgy_block  = data.get("liturgy") or {}
-        liturgic_title = data.get("liturgic_title") or liturgy_block.get("title") or ""
+        liturgy_block = data.get("liturgy") or {}
+        if liturgy_block is not None and not isinstance(liturgy_block, dict):
+            raise ScraperError(
+                f"Malformed upstream liturgy metadata schema/shape for {date_str}"
+            )
+        raw_title = data.get("liturgic_title")
+        if raw_title is None:
+            raw_title = liturgy_block.get("title") if isinstance(liturgy_block, dict) else None
+        if raw_title is None:
+            liturgic_title = ""
+        elif not isinstance(raw_title, str):
+            raise ScraperError(
+                f"Malformed upstream liturgic_title schema/shape for {date_str}"
+            )
+        else:
+            liturgic_title = raw_title
         date_displayed = data.get("date_displayed") or ""
+        if date_displayed is not None and not isinstance(date_displayed, str):
+            raise ScraperError(
+                f"Malformed upstream date_displayed schema/shape for {date_str}"
+            )
 
         # Commentary
         commentary_text   = ""
         commentary_author = ""
         commentary_source = ""
         commentary_data = data.get("commentary")
-        if commentary_data:
-            commentary_text   = _strip_markers(commentary_data.get("description"))
+        if commentary_data is not None:
+            if not isinstance(commentary_data, dict):
+                raise ScraperError(
+                    f"Malformed upstream commentary schema/shape for {date_str}"
+                )
+            description = commentary_data.get("description")
+            commentary_text = _strip_markers(
+                description if isinstance(description, str) else ""
+            )
             commentary_source = commentary_data.get("source") or ""
             author = commentary_data.get("author") or {}
+            if not isinstance(author, dict):
+                raise ScraperError(
+                    f"Malformed upstream commentary schema/shape for {date_str}"
+                )
             commentary_author = author.get("name") or ""
 
         result: dict = {
@@ -219,73 +327,13 @@ class EvangelizeScraper:
             "scraped_at": datetime.now().isoformat(),
         }
 
-        if first_reading:
-            result["first_reading"] = first_reading
-        if psalm:
-            result["psalm"] = psalm
+        result["first_reading"] = first_reading
+        result["psalm"] = psalm
         if second_reading:
             result["second_reading"] = second_reading
         result["gospel"] = gospel
 
         return result
-    
-    def _parse_daily_gospel(self, html: str, date_str: str) -> dict:
-        """
-        Parse HTML response from evangelizo.org.
-        
-        Args:
-            html: HTML content
-            date_str: Date string in YYYY-MM-DD format
-            
-        Returns:
-            Dictionary with parsed Gospel data
-        """
-        soup = BeautifulSoup(html, 'html.parser')
-        
-        # Extract Gospel section
-        gospel_section = soup.find(
-            'div',
-            class_=re.compile(r'gospel|reading.*gospel', re.IGNORECASE)
-        )
-        
-        if not gospel_section:
-            raise ScraperError(f"Could not find Gospel section for {date_str}")
-        
-        # Extract reference
-        ref_elem = gospel_section.find(
-            ['span', 'h3', 'h4'],
-            class_=re.compile(r'reference|citation', re.IGNORECASE)
-        )
-        reference = ref_elem.get_text(strip=True) if ref_elem else "Unknown"
-        
-        # Extract text
-        text_elem = gospel_section.find(
-            ['p', 'div'],
-            class_=re.compile(r'text|content', re.IGNORECASE)
-        )
-        text = text_elem.get_text(strip=True) if text_elem else ""
-        
-        # Extract commentary
-        commentary_section = soup.find(
-            'div',
-            class_=re.compile(r'comment|reflection', re.IGNORECASE)
-        )
-        commentary = ""
-        if commentary_section:
-            commentary_text = commentary_section.find(
-                ['p', 'div'],
-                class_=re.compile(r'text|content', re.IGNORECASE)
-            )
-            commentary = commentary_text.get_text(strip=True) if commentary_text else ""
-        
-        return {
-            "source": "vangelodelgiorno.org",
-            "date": date_str,
-            "gospel_reference": reference,
-            "gospel_text": text,
-            "commentary": commentary,
-            "scraped_at": datetime.now().isoformat()
-        }
 
 
 async def fetch_liturgical_data(
@@ -341,6 +389,11 @@ async def fetch_liturgical_data(
         source_name = result.get("source", "unknown")
         logger.info(f"[fetch_liturgical_data] Merged result from source: {source_name}")
         merged["sources"][source_name] = result
+
+    if not merged["sources"]:
+        raise ScraperError(
+            f"No liturgical data from any source for {date.strftime('%Y-%m-%d')}"
+        )
 
     logger.info(f"[fetch_liturgical_data] Returning merged result with sources: {list(merged['sources'].keys())}")
     return merged
