@@ -153,7 +153,8 @@ class TestPreferences:
         assert preference_block(prefs) == (
             "Preferenze richieste dall'utente per questa conversazione: "
             "target_audience=youth, tone=poetic, length=long. "
-            "Applica questi parametri quando chiami generate_homily o refine_homily."
+            "Usali salvo modifiche esplicite nella richiesta corrente. In refine_homily passa le modifiche "
+            "esplicite di destinatari o tono in preference_changes; una semplice riscrittura li conserva."
         )
 
     def test_empty_preferences_produce_no_block(self):

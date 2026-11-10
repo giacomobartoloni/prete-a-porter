@@ -118,3 +118,56 @@ typed operation, the adapter composes the Italian user turn — "Accorcia l'ulti
 omelia, ..." — and re-enters the normal run path, so the model sees plain prose
 and the history stays coherent. Actions run inside Chainlit's action request,
 not the message task, so the Stop button does not cancel them.
+
+## Progress and answer ordering
+
+While the graph works, a transient Italian status identifies waiting/tool work.
+It is never stored as conversation content. The answer is created at the first
+nonblank token, with a stable timestamp, so tool-first execution displays tool
+steps before prose. Leading whitespace is buffered rather than showing an empty
+bubble. Refinement actions appear only after a successful, nonblank completion.
+Errors and cancellation preserve partial generated text and show a notice that
+is excluded from the model-visible resumed history. A zero-text response is
+reported explicitly. Tool labels describe execution, not private model reasoning.
+
+
+### Resumed homily context and callback loops
+
+Successful homily tool results supply validated ISO date/occasion metadata on
+assistant steps. Resume reconstructs that context, including successful tool
+steps in older threads; it never infers a date from generated prose. A separate
+system context accompanies the next invocation. The core also pins refinement
+tool execution to that identity and fetches correct readings on mismatch. A user
+request for a different date/celebration uses new homily generation. The core
+retains no conversation state between requests.
+
+Tracing callbacks and progress updates run on the UI event loop even when
+LangChain invokes them from a worker loop. SQL execution similarly returns to
+the first server-query loop owning the pool and serialization lock. Transient
+progress remains excluded from persisted messages.
+
+
+### Authoring profile across revisions
+
+The app uses custom `homily_preferences` for explicit settings overrides and a
+separate `displayed_settings` snapshot. Chainlit's reserved `chat_settings` key
+contains committed widget values, including defaults; it is never used as proof
+that the user selected a preference. Controls are synchronized from the last
+successful homily profile without creating explicit overrides. Changing only tone
+does not implicitly select the default adult audience.
+
+Successful tool inputs supply validated audience/tone metadata alongside the
+liturgical identity. Refinement preserves that profile by default, applies explicit
+UI changes, then applies current textual changes via the optional internal tool
+parameter `preference_changes`. The core keeps no cross-request state and A2A
+contracts are unchanged. Only a successful tool can update the homily profile.
+
+Older threads recover preferences from their latest successful generation and
+avoid applying legacy refinement defaults. Historical explicit changes that were
+not recorded separately cannot be distinguished perfectly; new assistant metadata
+and explicit-change inputs remove this ambiguity for subsequent turns.
+
+See the [Chainlit session reference](https://github.com/chainlit/docs/blob/main/concepts/user-session.mdx)
+and [ChatSettings reference](https://github.com/chainlit/docs/blob/main/api-reference/chat-settings.mdx)
+for reserved keys and widget/session behavior; the installed2.12 implementation
+was also inspected for this integration.

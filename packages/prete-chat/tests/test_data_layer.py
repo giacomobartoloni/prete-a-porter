@@ -63,9 +63,14 @@ class TestCreateUser:
         stored_hash = auth.hash_password("password")
 
         async def execute(query, parameters):
-            return [{"id": "00000000-0000-0000-0000-000000000001",
-                     "identifier": "don@example.com", "createdAt": "2026-10-17",
-                     "metadata": {"name": "Don Mario", "password_hash": stored_hash, "google_id": "subject"}}]
+            return [
+                {
+                    "id": "00000000-0000-0000-0000-000000000001",
+                    "identifier": "don@example.com",
+                    "createdAt": "2026-10-17",
+                    "metadata": {"name": "Don Mario", "password_hash": stored_hash, "google_id": "subject"},
+                }
+            ]
 
         monkeypatch.setattr(layer, "execute_sql", execute)
         user = cl.User(identifier="don@example.com", metadata={"name": "Don Mario"})
@@ -95,9 +100,7 @@ class TestCreateUser:
 class TestPublicVersusAuthGetters:
     @pytest.mark.asyncio
     async def test_public_get_user_strips_password_hash(self, monkeypatch):
-        layer = SerializedSQLAlchemyDataLayer(
-            conninfo="postgresql+asyncpg://chainlit:pw@localhost:5432/chainlit"
-        )
+        layer = SerializedSQLAlchemyDataLayer(conninfo="postgresql+asyncpg://chainlit:pw@localhost:5432/chainlit")
         stored_hash = auth.hash_password("segreta")
         raw = PersistedUser(
             id="00000000-0000-0000-0000-000000000002",
@@ -125,4 +128,46 @@ class TestPublicVersusAuthGetters:
         assert private.metadata[auth.PASSWORD_METADATA_KEY] == stored_hash
         # Raw object must not be mutated.
         assert auth.PASSWORD_METADATA_KEY in raw.metadata
+        await layer.close()
+
+
+@pytest.mark.asyncio
+async def test_transient_progress_never_reaches_storage(monkeypatch):
+    layer = SerializedSQLAlchemyDataLayer(conninfo="postgresql+asyncpg://u:pw@localhost/db")
+
+    async def reject_write(*args, **kwargs):
+        raise AssertionError("Transient progress must not reach SQL")
+
+    monkeypatch.setattr(layer, "execute_sql", reject_write)
+    step = {
+        "id": "status",
+        "type": "assistant_message",
+        "output": "Sto elaborando…",
+        "metadata": {"model_content": "", "transient_progress": True},
+    }
+    try:
+        assert await layer.create_step(step) is True
+        assert await layer.update_step(step) is True
+    finally:
+        await layer.close()
+
+
+@pytest.mark.asyncio
+async def test_worker_loop_statements_execute_on_first_owner_loop(monkeypatch):
+    layer = SerializedSQLAlchemyDataLayer(conninfo="postgresql+asyncpg://u:pw@localhost/db")
+    owner = asyncio.get_running_loop()
+    observed = []
+
+    async def probe(self, query, parameters):
+        observed.append(asyncio.get_running_loop())
+        await asyncio.sleep(0.01)
+        return query
+
+    monkeypatch.setattr(SQLAlchemyDataLayer, "execute_sql", probe)
+    try:
+        await layer.execute_sql("owner", {})
+        result = await asyncio.to_thread(lambda: asyncio.run(layer.execute_sql("worker", {})))
+        assert result == "worker"
+        assert observed == [owner, owner]
+    finally:
         await layer.close()

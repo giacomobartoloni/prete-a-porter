@@ -440,7 +440,8 @@ def _get_homily_transport_config() -> Dict[str, Any]:
         Dictionary with agent_url for HTTP transport
     """
     config = {
-        "agent_url": os.environ.get("A2A_HOMILY_URL", "http://localhost:8002")
+        "agent_url": os.environ.get("A2A_HOMILY_URL", "http://localhost:8002"),
+        "retries": 1,
     }
     config.update(_get_auth_config())
     return config
@@ -711,7 +712,7 @@ async def request_homily_generation(
                 "occasion": occasion,
                 "preferences": preferences or {},
             },
-            timeout=60.0,
+            timeout=float(os.getenv("HOMILY_REQUEST_TIMEOUT_SECONDS", "110")),
         )
         return result
 
@@ -774,7 +775,7 @@ async def request_homily_refinement(
                 "preferences": preferences or {},
                 "existing_draft": existing_draft,
             },
-            timeout=60.0,
+            timeout=float(os.getenv("HOMILY_REQUEST_TIMEOUT_SECONDS", "110")),
         )
         return result
 
@@ -783,8 +784,8 @@ async def request_homily_refinement(
 async def generate_homily(
     liturgical_data: str,
     occasion: str,
-    preferences: Optional[str] = None
-) -> Dict[str, Any]:
+    preferences: str | None = None
+) -> dict[str, Any]:
     """Generate a homily based on liturgical readings.
     
     Args:
@@ -794,6 +795,8 @@ async def generate_homily(
             - target_audience: "adults", "youth", "children", "mixed"
             - tone: "formal", "conversational", "poetic", "consolatory", "celebratory"
             - length: "short", "medium", "long"
+            - target_word_count: integer 50..3000, exact approximate word target (overrides length)
+            - instructions: full user request including celebration, examples and revision constraints
             - themes: list of additional themes
             - metaphors: list of metaphors to use
             - analogies: list of analogies to use
@@ -805,7 +808,7 @@ async def generate_homily(
     try:
         lit_data = _parse_llm_json(liturgical_data)
         prefs = _parse_llm_json(preferences) if preferences else {}
-        
+
         result = await request_homily_generation(lit_data, occasion, prefs)
         return result
     except Exception as e:
@@ -820,15 +823,20 @@ async def generate_homily(
 async def refine_homily(
     liturgical_data: str,
     occasion: str,
-    preferences: Optional[str] = None,
-    existing_draft: Optional[str] = None
-) -> Dict[str, Any]:
+    preferences: str | None = None,
+    existing_draft: str | None = None,
+    preference_changes: str | None = None
+) -> dict[str, Any]:
     """Refine an existing homily.
     
     Args:
         liturgical_data: JSON string with liturgical readings data
         occasion: Type of liturgical occasion
-        preferences: Optional JSON string with user preferences
+        preferences: Optional JSON string; include target_word_count and the full revision request in instructions
+        preference_changes: Optional JSON object with ONLY target_audience and/or tone
+            explicitly changed by the CURRENT user request. Omit for shortening,
+            example replacement or other revisions that keep those preferences.
+            Inherited preferences belong in preferences, not preference_changes.
         existing_draft: The existing homily text to refine
         
     Returns:
@@ -837,7 +845,20 @@ async def refine_homily(
     try:
         lit_data = _parse_llm_json(liturgical_data) if liturgical_data else {}
         prefs = _parse_llm_json(preferences) if preferences else {}
-        
+
+        if preference_changes:
+            from .context import STABLE_OPTIONS, json_object
+
+            changes = json_object(preference_changes)
+            if changes is None:
+                raise ValueError("Preference changes must be a JSON object")
+            for key, value in changes.items():
+                if key not in STABLE_OPTIONS:
+                    continue
+                if not isinstance(value, str) or value not in STABLE_OPTIONS[key]:
+                    raise ValueError(f"Invalid explicit preference change: {key}")
+                prefs[key] = value
+
         result = await request_homily_refinement(lit_data, occasion, prefs, existing_draft)
         return result
     except Exception as e:

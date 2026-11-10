@@ -411,6 +411,31 @@
                   }
                 ],
                 "default": null
+              },
+              "target_word_count": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": 50,
+                    "maximum": 3000
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null
+              },
+              "instructions": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "maxLength": 4000
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null
               }
             },
             "type": "object"
@@ -990,6 +1015,31 @@
                       "type": "string"
                     },
                     "type": "array"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null
+              },
+              "target_word_count": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": 50,
+                    "maximum": 3000
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null
+              },
+              "instructions": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "maxLength": 4000
                   },
                   {
                     "type": "null"
@@ -1581,6 +1631,31 @@
                       "type": "string"
                     },
                     "type": "array"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null
+              },
+              "target_word_count": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": 50,
+                    "maximum": 3000
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null
+              },
+              "instructions": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "maxLength": 4000
                   },
                   {
                     "type": "null"

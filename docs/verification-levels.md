@@ -281,3 +281,87 @@ passing unit suite says nothing about whether the system works.
   records are dropped, and their `WARNING` records surface only as bare lines through
   `logging.lastResort`. Verified against the container: `grep -c "Requesting liturgical
   data"` on the logs returns 0 although the tools ran.
+
+## Homily composition and native progress verification
+
+The homily service now has an explicit model-input boundary: full readings,
+preferences, requested word count, complete revision draft and bounded retrieved
+context. `packages/homily-agent/tests/test_generator.py` exercises this boundary
+with injected models, malformed output, bounded correction, provider failures,
+legacy lengths, source attribution and thread execution under the compiled graph.
+These tests establish propagation and validation, not literary/theological quality.
+
+`TEST_MODE=true` uses clearly deterministic fixture prose and no real retrieval.
+The existing live-contract fixture workflow in `contracts/README.md` exercises
+all homily capabilities without depending on paid model access. Passing it does
+not establish real-model usefulness.
+
+Native presentation lifecycle tests cover waiting/tool status, first-token
+creation, whitespace-only output, completion-only actions and interruption
+notices. Transient progress is excluded from SQL storage, while generated answers
+carry a stable timestamp and model-visible content. Real browser acceptance must
+also inspect tool-before-answer ordering, streamed tokens and thread reload;
+compare rendered Markdown semantically rather than searching for raw markup.
+
+For real-model acceptance, request approximately 500 Italian words for adolescents
+on peacemakers with a school example, then approximately 200 words replacing it
+with a concrete sibling conflict. Count the four section bodies (titles excluded),
+inspect the actual change and record the selected provider profile. The supported
+count tolerance is ±15%; theological accuracy and citation entailment require
+separate review. Output tokens and reasoning may share a provider budget; latency
+and truncation can change with that profile even when application tests pass.
+
+
+### Follow-up regression from a real resumed conversation (2026-10-26)
+
+A later user revision invalidated the initial smoke conclusion: the model returned
+278 and 275 words for a 200-word target, causing a generic A2A failure. The turn
+also drifted to 2025 instead of 2026 and exposed a cross-loop SQL lock error.
+Additional fail-first tests now cover conservative complete-sentence length
+fitting, multi-sentence quotations and abbreviations, actual worker event-loop
+callbacks/queries, persisted date/occasion metadata, malformed tool arguments,
+wrong-year refinement and generation followed by refinement in the same turn.
+
+Real acceptance must include **generation, browser reload, then revision**, not
+just two direct A2A calls or one browser turn. The first corrective browser run
+succeeded with a 228-word revision: the model's 257-word output was corrected to
+250, then complete optional sentences were removed to reach the validated range.
+The practical application and conclusion were preserved; manual inspection found
+a coherent brother-conflict example and the retained 2026 date. This is measured
+behavior for the configured provider, not a guarantee for every model or prompt.
+
+
+The final local profile uses JSON object mode, reasoning `low`, output cap8192,
+model timeout60s and A2A deadline140s. After the focused length-editor change,
+two consecutive complete browser runs passed:499→220 and503→209 body words.
+Both retained2026-11-01 across reloads. All four stored answers and context matched
+the browser traces; no blank-answer events or persisted transient rows were found.
+Whole chat turns took approximately54–71s, exceeding the30s response-time goal.
+One isolated low-reasoning generation still exhausted8192 tokens; successful runs
+qualify this scenario, not every prompt. JSON schema/word-array experiments were
+not integrated because actual provider behavior did not justify them. A private
+Qwen comparison did not change the application's selected model.
+
+Final follow-up suites: A2A54, orchestrator319, liturgy81, homily84, native100;
+fixture contracts114; separate real PostgreSQL/HTTP5. Optional parser/upstream
+checks remain excluded as indicated by their test markers. These numbers describe
+this checkout's verification, not a general content-quality benchmark.
+
+
+### Audience preservation after resume (2026-10-26)
+
+A user acceptance test showed469-word youth generation followed by218-word adult
+revision. Stored inputs established an actual wrong audience parameter, not merely
+an unsuitable example. Chainlit's reserved `chat_settings` key exposed committed
+widget defaults as supposedly explicit preferences. Custom overrides, displayed
+widget state and the successful homily profile are now separate.
+
+Fail-first regressions cover audience inheritance, explicit text/UI changes,
+tone-only settings, returning to the adult default after showing youth, legacy
+resume, malformed/Python-literal arguments, same-turn overrides and failed tools.
+Full affected suites: orchestrator327, native103. Isolated fixture contracts114.
+A real browser workflow generated513 words for youth, reloaded and refined to227
+for youth, then explicitly changed to adults with227 words. Metadata and SQL
+readback confirmed youth→youth→adults and the2026 date. The user's existing thread
+was resumed read-only and showed youth in the settings panel. Literary quality
+and explicit-change classification remain model responsibilities.

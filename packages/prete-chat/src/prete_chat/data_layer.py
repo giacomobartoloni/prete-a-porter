@@ -63,8 +63,19 @@ class SerializedSQLAlchemyDataLayer(SQLAlchemyDataLayer):
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
         self._statement_lock = asyncio.Lock()
+        self._owner_loop: asyncio.AbstractEventLoop | None = None
 
     async def execute_sql(self, query: str, parameters: dict) -> Any:
+        loop = asyncio.get_running_loop()
+        # The first server query (authentication/history) owns the pool. Later
+        # callback threads must use that same loop, including its lock.
+        if self._owner_loop is None:
+            self._owner_loop = loop
+        if loop is not self._owner_loop:
+            if self._owner_loop.is_closed() or not self._owner_loop.is_running():
+                raise RuntimeError("The database owner event loop is unavailable")
+            future = asyncio.run_coroutine_threadsafe(self.execute_sql(query, parameters), self._owner_loop)
+            return await asyncio.wrap_future(future)
         async with self._statement_lock:
             return await super().execute_sql(query, parameters)
 
@@ -81,6 +92,17 @@ class SerializedSQLAlchemyDataLayer(SQLAlchemyDataLayer):
         Must not be used for session/JWT/``/user`` responses.
         """
         return await super().get_user(identifier)
+
+    async def create_step(self, step_dict: dict) -> Any:
+        """Progress is ephemeral UI, never canonical conversation history."""
+        if (step_dict.get("metadata") or {}).get("transient_progress"):
+            return True
+        return await super().create_step(step_dict)
+
+    async def update_step(self, step_dict: dict) -> Any:
+        if (step_dict.get("metadata") or {}).get("transient_progress"):
+            return True
+        return await super().update_step(step_dict)
 
     async def create_user(self, user: cl.User) -> PersistedUser | None:
         """Atomically merge a profile, retaining credentials and Google binding.

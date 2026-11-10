@@ -41,7 +41,8 @@ class ChatPreferences(BaseModel):
 
 PREFERENCE_BLOCK_TEMPLATE = (
     "Preferenze richieste dall'utente per questa conversazione: {pairs}. "
-    "Applica questi parametri quando chiami generate_homily o refine_homily."
+    "Usali salvo modifiche esplicite nella richiesta corrente. In refine_homily passa le modifiche "
+    "esplicite di destinatari o tono in preference_changes; una semplice riscrittura li conserva."
 )
 
 
@@ -67,9 +68,7 @@ def flatten_content(content: str | list[dict[str, Any]]) -> str:
     if isinstance(content, str):
         return content
     return "\n".join(
-        block.get("text", "")
-        for block in content
-        if isinstance(block, dict) and block.get("type") == "text"
+        block.get("text", "") for block in content if isinstance(block, dict) and block.get("type") == "text"
     )
 
 
@@ -134,9 +133,7 @@ def extract_reply_text(result: dict[str, Any]) -> str:
         return raw
     if isinstance(raw, list):
         joined = "\n".join(
-            block.get("text", "")
-            for block in raw
-            if isinstance(block, dict) and block.get("type") == "text"
+            block.get("text", "") for block in raw if isinstance(block, dict) and block.get("type") == "text"
         )
         return joined or str(raw)
     return str(raw)
@@ -196,6 +193,7 @@ async def stream_chat(
     session_id: str | None = None,
     config: Mapping[str, Any] | None = None,
     preferences: ChatPreferences | None = None,
+    liturgical_context: dict[str, Any] | None = None,
 ) -> AsyncIterator[tuple[object, dict[str, Any]]]:
     """Stream one graph run as native LangGraph ``(chunk, metadata)`` tuples.
 
@@ -209,6 +207,13 @@ async def stream_chat(
     state: dict[str, Any] = {"messages": to_langchain_messages(messages, preferences)}
     if session_id is not None:
         state["session_id"] = session_id
+    from .context import parse_liturgical_context
+
+    context = parse_liturgical_context(liturgical_context)
+    if context:
+        state["liturgical_context"] = context
+    if preferences is not None:
+        state["preference_overrides"] = preferences.model_dump(exclude_none=True)
     invocation_config = {"recursion_limit": RECURSION_LIMIT, **(config or {})}
     async with asyncio.timeout(get_chat_timeout_seconds()):
         async for chunk, metadata in graph.astream(state, config=invocation_config, stream_mode="messages"):

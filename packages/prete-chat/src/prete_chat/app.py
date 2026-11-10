@@ -11,9 +11,10 @@ import uuid
 
 import chainlit as cl
 from chat_orchestrator.application import is_visible_token
+from chat_orchestrator.context import effective_preferences
 from chat_orchestrator.utils.logging import configure_logging, get_logger, set_correlation_id
 
-from prete_chat import actions, auth, config, data_layer, errors, history, labels, preferences, runner
+from prete_chat import actions, auth, config, data_layer, errors, history, labels, preferences, presentation, runner
 
 configure_logging()
 logger = get_logger(__name__)
@@ -30,6 +31,7 @@ if config.persistence_enabled():
         cl.oauth_callback(auth.google_oauth)
 else:
     logger.warning("persistence disabled: no conversation history and no authentication")
+
 
 @cl.set_starters
 async def set_starters(user: cl.User | None, language: str | None) -> list[cl.Starter]:
@@ -78,11 +80,6 @@ def _log_turn(
     )
 
 
-def _append_notice(answer: cl.Message, notice: str) -> None:
-    """Append a status notice to the answer the user is looking at."""
-    answer.content = f"{answer.content}\n\n{notice}" if answer.content else notice
-
-
 def _record_turns(turns: list[dict[str, str]], user_text: str, assistant_parts: list[str]) -> None:
     """Persist the model-visible turns in the session history (plan §15).
 
@@ -94,6 +91,18 @@ def _record_turns(turns: list[dict[str, str]], user_text: str, assistant_parts: 
     cl.user_session.set("history", turns)
 
 
+async def _show_settings() -> None:
+    """Show the effective profile without turning defaults into user choices."""
+    context = cl.user_session.get("liturgical_context") or {}
+    displayed = {
+        **preferences.INITIAL_VALUES,
+        **context.get("preferences", {}),
+        **preferences.selected_values(cl.user_session.get("homily_preferences")),
+    }
+    cl.user_session.set("displayed_settings", displayed)
+    await cl.ChatSettings(preferences.settings_widgets(displayed)).send()
+
+
 @cl.on_chat_start
 async def on_chat_start() -> None:
     """Start a fresh conversation: empty model-visible history, no core call.
@@ -103,8 +112,9 @@ async def on_chat_start() -> None:
     and the welcome text is already the readme panel (``chainlit.md``).
     """
     cl.user_session.set("history", [])
-    cl.user_session.set("chat_settings", {})
-    await cl.ChatSettings(preferences.settings_widgets()).send()
+    cl.user_session.set("liturgical_context", None)
+    cl.user_session.set("homily_preferences", {})
+    await _show_settings()
     logger.info("chat started", user_id=_user_id(), thread_id=cl.context.session.thread_id)
 
 
@@ -112,10 +122,15 @@ async def on_chat_start() -> None:
 async def on_settings_update(settings: dict) -> None:
     """Keep the conversation preferences for the next invocations.
 
-    Only the chosen fields reach the model, and only as part of the invocation's
-    system prompt — nothing is persisted by the core (plan §18).
+    Chosen fields enter the invocation as typed overrides and a system block;
+    the core retains no preference state between requests (plan §18).
     """
-    cl.user_session.set("chat_settings", dict(settings))
+    selected = preferences.updated_overrides(
+        cl.user_session.get("homily_preferences"), cl.user_session.get("displayed_settings"), settings
+    )
+    cl.user_session.set("homily_preferences", selected)
+    displayed = {**(cl.user_session.get("displayed_settings") or {}), **preferences.selected_values(settings)}
+    cl.user_session.set("displayed_settings", displayed)
     logger.info("chat settings updated", user_id=_user_id(), fields=sorted(settings))
 
 
@@ -127,8 +142,11 @@ async def on_chat_resume(thread: dict) -> None:
     context for the next model invocation is rebuilt here.
     """
     turns = history.from_thread(thread)
+    cl.user_session.set("liturgical_context", history.context_from_thread(thread))
     cl.user_session.set("history", turns)
-    cl.user_session.set("chat_settings", dict(cl.context.session.chat_settings or {}))
+    stored = (thread.get("metadata") or {}).get("homily_preferences") or {}
+    cl.user_session.set("homily_preferences", preferences.selected_values(stored))
+    await _show_settings()
     logger.info(
         "chat resumed",
         user_id=_user_id(),
@@ -167,32 +185,54 @@ async def _answer_turn(user_text: str, user_message: cl.Message | None = None) -
         return
 
     turns: list[dict[str, str]] = cl.user_session.get("history") or []
-    messages = history.build_messages(turns, user_text)
-    answer = cl.Message(content="", actions=actions.refinement_actions(),
-                        metadata={history.MODEL_CONTENT_METADATA_KEY: ""})
-    await answer.send()
-    handler = labels.ItalianLabelsHandler()
-    conversation_preferences = preferences.from_settings(cl.user_session.get("chat_settings"))
+    context = cl.user_session.get("liturgical_context")
+    messages = history.build_messages(turns, user_text, context=context)
+    view = presentation.TurnPresentation()
+    await view.start()
+
+    overrides_at_start = preferences.selected_values(cl.user_session.get("homily_preferences"))
+
+    async def remember_result(name: str, result: object, inputs: object) -> None:
+        if name not in {"generate_homily", "refine_homily"}:
+            return
+        candidate = history.context_from_result(result, preferences=effective_preferences(inputs))
+        if candidate is not None:
+            cl.user_session.set("liturgical_context", candidate)
+            # A newer explicit textual change supersedes an older UI override.
+            overrides = preferences.selected_values(cl.user_session.get("homily_preferences"))
+            profile = candidate.get("preferences", {})
+            overrides = {
+                key: value
+                for key, value in overrides.items()
+                if key not in profile or profile[key] == value or overrides_at_start.get(key) != value
+            }
+            cl.user_session.set("homily_preferences", overrides)
+            await _show_settings()
+
+    handler = labels.ItalianLabelsHandler(
+        on_tool_start=view.tool_started, on_tool_end=view.tool_finished, on_tool_result=remember_result
+    )
+    conversation_preferences = preferences.from_settings(cl.user_session.get("homily_preferences"))
     text_parts: list[str] = []
 
+    notice = None
     try:
         async for chunk, metadata in runner.stream_chat(
             messages,
             session_id=thread_id,
             config={"callbacks": [handler]},
+            liturgical_context=context,
             preferences=conversation_preferences,
         ):
             if is_visible_token(chunk, metadata):
-                await answer.stream_token(chunk.content)
+                await view.stream_token(chunk.content)
                 text_parts.append(chunk.content)
         outcome = "completed"
     except asyncio.CancelledError:
         # The user pressed Stop: keep what was streamed, mark it, re-raise so
         # Chainlit's own task handling sees the cancellation (socket.py).
-        _append_notice(answer, errors.CANCELLED_MESSAGE_IT)
         outcome = "cancelled"
-        answer.metadata[history.MODEL_CONTENT_METADATA_KEY] = "".join(text_parts)
-        await answer.update()
+        await view.finish(notice=errors.CANCELLED_MESSAGE_IT)
         _record_turns(turns, user_text, text_parts)
         _log_turn(
             user_id=user_id,
@@ -209,10 +249,14 @@ async def _answer_turn(user_text: str, user_message: cl.Message | None = None) -
             logger.error("chat turn timed out", request_id=request_id)
         else:
             logger.error("chat turn failed", request_id=request_id, exc_info=True)
-        _append_notice(answer, errors.user_message_for(error))
+        notice = errors.user_message_for(error)
 
-    answer.metadata[history.MODEL_CONTENT_METADATA_KEY] = "".join(text_parts)
-    await answer.update()
+    await view.finish(notice=notice, actions=actions.refinement_actions() if outcome == "completed" else None)
+    if view.answer is not None:
+        current_context = cl.user_session.get("liturgical_context")
+        if history.valid_context(current_context):
+            view.answer.metadata["liturgical_context"] = current_context
+            await view.answer.update()
     _record_turns(turns, user_text, text_parts)
     _log_turn(
         user_id=user_id,

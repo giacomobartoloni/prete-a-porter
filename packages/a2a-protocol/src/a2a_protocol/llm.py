@@ -16,7 +16,8 @@ class LLMNotConfiguredError(Exception):
     pass
 
 
-def create_llm(strict: bool = True) -> object:
+def create_llm(strict: bool = True, *, timeout: float | None = None,
+               max_retries: int | None = None, max_tokens: int | None = None) -> object:
     """Create an LLM instance based on available API keys.
 
     Checks ANTHROPIC_API_KEY, GOOGLE_API_KEY, OPENAI_API_KEY
@@ -52,12 +53,13 @@ def create_llm(strict: bool = True) -> object:
         ("OPENAI_API_KEY", _create_openai, "langchain_openai"),
     ]
 
+    options = {key: value for key, value in {"timeout": timeout, "max_retries": max_retries, "max_tokens": max_tokens}.items() if value is not None}
     provider_errors = []
 
     for env_var, factory, package_name in providers:
         api_key = os.getenv(env_var)
         if api_key:
-            llm = factory(api_key)
+            llm = factory(api_key, **options)
             if llm:
                 return llm
             provider_errors.append(f"{env_var} is set but {package_name} is not installed")
@@ -72,32 +74,32 @@ def create_llm(strict: bool = True) -> object:
     return MagicMock()
 
 
-def _create_anthropic(api_key: str) -> object | None:
+def _create_anthropic(api_key: str, **options) -> object | None:
     model = os.getenv("ANTHROPIC_MODEL_NAME", "claude-3-5-sonnet-20241022")
     try:
         from langchain_anthropic import ChatAnthropic
-        return ChatAnthropic(model_name=model, api_key=api_key)
+        return ChatAnthropic(model_name=model, api_key=api_key, **options)
     except ImportError:
         logger.warning("langchain_anthropic not available")
         return None
 
 
-def _create_google(api_key: str) -> object | None:
+def _create_google(api_key: str, **options) -> object | None:
     model = os.getenv("GOOGLE_MODEL_NAME", "gemini-flash-lite-latest")
     try:
         from langchain_google_genai import ChatGoogleGenerativeAI
-        return ChatGoogleGenerativeAI(model=model, api_key=api_key)
+        return ChatGoogleGenerativeAI(model=model, api_key=api_key, **{("max_output_tokens" if k == "max_tokens" else k): v for k, v in options.items()})
     except ImportError:
         logger.warning("langchain_google_genai not available")
         return None
 
 
-def _create_openai(api_key: str) -> object | None:
+def _create_openai(api_key: str, **options) -> object | None:
     model = os.getenv("OPENAI_MODEL_NAME", "gpt-4-turbo-preview")
     base_url = os.getenv("OPENAI_BASE_URL")
     try:
         from langchain_openai import ChatOpenAI
-        kwargs = {"model": model, "api_key": api_key}
+        kwargs = {"model": model, "api_key": api_key, **options}
         if base_url:
             kwargs["base_url"] = base_url
         return ChatOpenAI(**kwargs)

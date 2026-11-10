@@ -52,7 +52,12 @@ class TestFromThread:
         "steps": [
             {"type": "run", "name": "agent", "createdAt": "2026-09-18T10:00:00Z", "output": "{...}"},
             {"type": "user_message", "output": "Quali sono le letture?", "createdAt": "2026-09-18T10:00:01Z"},
-            {"type": "tool", "name": "Recupero le letture liturgiche", "createdAt": "2026-09-18T10:00:02Z", "output": "{}"},
+            {
+                "type": "tool",
+                "name": "Recupero le letture liturgiche",
+                "createdAt": "2026-09-18T10:00:02Z",
+                "output": "{}",
+            },
             {"type": "assistant_message", "output": "Ecco le letture.", "createdAt": "2026-09-18T10:00:03Z"},
             {"type": "llm", "name": "agent", "createdAt": "2026-09-18T10:00:04Z", "output": "..."},
             {"type": "user_message", "output": "Grazie", "createdAt": "2026-09-18T10:00:05Z"},
@@ -103,14 +108,20 @@ class TestFromThread:
         assert history.from_thread(thread) == [{"role": "user", "content": "Ciao"}]
 
     def test_resume_uses_model_text_without_appended_status_notice(self):
-        thread = {"steps": [{"type": "assistant_message", "output": "Risposta parziale\n\nTimeout",
-                              "metadata": {"model_content": "Risposta parziale"}}]}
+        thread = {
+            "steps": [
+                {
+                    "type": "assistant_message",
+                    "output": "Risposta parziale\n\nTimeout",
+                    "metadata": {"model_content": "Risposta parziale"},
+                }
+            ]
+        }
         assert history.from_thread(thread) == [{"role": "assistant", "content": "Risposta parziale"}]
 
     @pytest.mark.parametrize("step_type", ["user_message", "assistant_message"])
     def test_resume_ignores_rejected_turn_messages(self, step_type):
-        thread = {"steps": [{"type": step_type, "output": "Quota esaurita",
-                              "metadata": {"model_content": ""}}]}
+        thread = {"steps": [{"type": step_type, "output": "Quota esaurita", "metadata": {"model_content": ""}}]}
         assert history.from_thread(thread) == []
 
 
@@ -183,3 +194,64 @@ class TestRealThreadFixture:
             {"role": "user", "content": "Che letture ci sono per un matrimonio?"},
             {"role": "assistant", "content": "Il Lezionario prevede un numero più ampio di opzioni."},
         ]
+
+
+def test_successful_homily_context_survives_resume_separately_from_prose():
+    context = {"date": "2026-11-01", "occasion": "mass"}
+    thread = {"steps": [{"type": "assistant_message", "output": "Omelia", "metadata": {"liturgical_context": context}}]}
+    assert history.context_from_thread(thread) == context
+    messages = history.build_messages(history.from_thread(thread), "Riscrivi in 200 parole", context=context)
+    assert messages[0].role == "system"
+    assert "2026-11-01" in messages[0].content
+    assert len(history.from_thread(thread)) == 1
+
+
+def test_failed_or_invalid_tool_result_never_supplies_date_context():
+    assert (
+        history.context_from_result(
+            {"error": "failed", "data": {"homily": {"liturgical_date": "2025-11-01", "occasion": "mass"}}}
+        )
+        is None
+    )
+    assert (
+        history.context_from_result(
+            {"status": "success", "data": {"homily": {"liturgical_date": "invalid", "occasion": "mass"}}}
+        )
+        is None
+    )
+    assert history.context_from_result(
+        {"output": {"status": "success", "data": {"homily": {"liturgical_date": "2026-11-01", "occasion": "mass"}}}}
+    ) == {"date": "2026-11-01", "occasion": "mass"}
+
+
+def test_legacy_resume_keeps_latest_generation_audience_over_accidental_refine_defaults():
+    import json
+
+    def step(name, audience):
+        return {
+            "type": "tool",
+            "name": name,
+            "input": json.dumps({"preferences": json.dumps({"target_audience": audience, "tone": "formal"})}),
+            "output": json.dumps(
+                {
+                    "output": {
+                        "status": "success",
+                        "data": {"homily": {"liturgical_date": "2026-11-01", "occasion": "mass"}},
+                    }
+                }
+            ),
+        }
+
+    thread = {
+        "steps": [
+            step("Preparo l'omelia", "youth"),
+            {
+                "type": "assistant_message",
+                "metadata": {"liturgical_context": {"date": "2026-11-01", "occasion": "mass"}},
+            },
+            step("Rivedo l'omelia", "adults"),
+        ]
+    }
+    assert history.context_from_thread(thread)["preferences"]["target_audience"] == "youth"
+    thread["steps"].append(step("Preparo l'omelia", "children"))
+    assert history.context_from_thread(thread)["preferences"]["target_audience"] == "children"

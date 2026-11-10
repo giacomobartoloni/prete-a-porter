@@ -223,7 +223,7 @@ class TestHomilyContractDefinition:
         assert contract["transport"]["endpoint"] == "/"
         method = next(m for m in contract["methods"] if m["name"] == name)
         preferences = method["params"]["properties"]["preferences"]["properties"]
-        assert set(preferences) == {"target_audience", "tone", "length", "themes", "metaphors", "analogies", "parables"}
+        assert set(preferences) == {"target_audience", "tone", "length", "themes", "metaphors", "analogies", "parables", "target_word_count", "instructions"}
         required = set(method["params"]["required"])
         assert "liturgical_data" in required
         if name != "homily.generate":
@@ -294,3 +294,16 @@ class TestHomilyAgentErrorHandling:
         assert body["error"]["message"] == "Internal error"
         assert set(body["error"]["data"]) == {"error_id"}
         assert body["error"]["data"]["error_id"]
+
+
+def test_precise_homily_preferences_accept_limits_and_reject_bad_input():
+    from pydantic import ValidationError
+    from models import PreferencesContract
+    parsed=PreferencesContract(target_word_count=200,instructions="Sostituisci la scuola con una lite tra fratelli")
+    assert parsed.target_word_count==200
+    assert parsed.instructions=="Sostituisci la scuola con una lite tra fratelli"
+    for invalid in [49,3001,True]:
+        with pytest.raises(ValidationError):
+            PreferencesContract(target_word_count=invalid)
+    with pytest.raises(ValidationError):
+        PreferencesContract(instructions="x"*4001)

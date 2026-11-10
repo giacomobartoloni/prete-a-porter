@@ -112,6 +112,8 @@ class PreferencesContract(ConsumerModel):
     target_audience: Literal["adults", "youth", "children", "mixed"] = "adults"
     tone: Literal["formal", "conversational", "poetic", "consolatory", "celebratory"] = "formal"
     length: Literal["short", "medium", "long"] = "medium"
+    target_word_count: int | None = Field(default=None, ge=50, le=3000, strict=True)
+    instructions: StrictStr | None = Field(default=None, max_length=4000)
     themes: list[StrictStr] | None = None
     metaphors: list[StrictStr] | None = None
     analogies: list[StrictStr] | None = None

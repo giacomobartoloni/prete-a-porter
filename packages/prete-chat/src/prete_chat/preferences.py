@@ -11,7 +11,6 @@ from collections.abc import Mapping
 from typing import Any
 
 from chainlit.input_widget import Select
-
 from chat_orchestrator.application import ChatPreferences
 
 AUDIENCE_ITEMS: dict[str, str] = {
@@ -48,10 +47,11 @@ INITIAL_VALUES: dict[str, str] = {
 }
 
 
-def settings_widgets() -> list[Select]:
+def settings_widgets(values: Mapping[str, Any] | None = None) -> list[Select]:
     """The three selects shown in the composer's settings panel."""
+    displayed = {**INITIAL_VALUES, **selected_values(values)}
     return [
-        Select(id=field, label=label, items=items, initial_value=INITIAL_VALUES[field])
+        Select(id=field, label=label, items=items, initial_value=displayed[field])
         for field, label, items in (
             ("target_audience", "Destinatari", AUDIENCE_ITEMS),
             ("tone", "Tono", TONE_ITEMS),
@@ -68,11 +68,23 @@ def from_settings(settings: Mapping[str, Any] | None) -> ChatPreferences | None:
     browser: unknown ids and values the core does not accept are ignored
     instead of raising, so a stale stored session cannot break a turn.
     """
-    selected: dict[str, str] = {}
-    for field, items in ITEM_SETS.items():
-        value = (settings or {}).get(field)
-        if isinstance(value, str) and value in items.values():
-            selected[field] = value
+    selected = selected_values(settings)
     if not selected:
         return None
     return ChatPreferences(**selected)
+
+
+def selected_values(settings: Mapping[str, Any] | None) -> dict[str, str]:
+    return {
+        field: value
+        for field, items in ITEM_SETS.items()
+        if isinstance(value := (settings or {}).get(field), str) and value in items.values()
+    }
+
+
+def updated_overrides(
+    current: Mapping[str, Any] | None, displayed: Mapping[str, Any] | None, incoming: Mapping[str, Any]
+) -> dict[str, str]:
+    """Only real changes from the shown controls become explicit overrides."""
+    updates = {key: value for key, value in selected_values(incoming).items() if value != (displayed or {}).get(key)}
+    return {**selected_values(current), **updates}

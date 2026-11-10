@@ -54,7 +54,7 @@ class HomilyAgentHandler:
             from .rag import RetrievalService, load_theological_corpus
 
             try:
-                self.retrieval_service = load_theological_corpus()
+                self.retrieval_service = None if os.getenv("TEST_MODE") == "true" else load_theological_corpus()
             except Exception as e:
                 logger.warning(f"Could not load theological corpus: {e}")
                 self.retrieval_service = RetrievalService()

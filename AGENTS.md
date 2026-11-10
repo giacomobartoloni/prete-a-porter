@@ -343,16 +343,16 @@ metadata.
 **Location**: `packages/homily-agent/src/homily_agent/`
 
 ### Role
-Exposes generation, refinement and tone-adjustment methods with structural
-validation. The current implementation produces template sections: it retrieves
-source names but does not ground prose in retrieved passages, consume the supplied
-draft, or substantively implement audience, length and tone preferences. Treat
-these as advertised capabilities awaiting implementation, not verified features.
+Generates and revises Italian homilies using full scripture texts, preferences,
+complete drafts and bounded theological context. Four-section structure and
+approximate word count are validated. Provider failures and persistently invalid
+output fail explicitly; no placeholder template is returned. There is no
+independent theological evaluation or citation-entailment certification.
 
 ### Technology
 - **Runtime**: Python 3.12+
 - **Framework**: LangGraph (StateGraph)
-- **Generation**: fixed templates; no model invocation in `HomilyGenerator`
+- **Generation**: shared provider factory, bounded model calls, validated JSON sections and word count
 - **Vector DB**: ChromaDB (local only)
 - **Runtime embeddings**: Chroma ONNX MiniLM on CPU; the separate sentence-transformers helper does not configure this path
 - **Protocol**: A2A (JSON-RPC 2.0 over HTTP)
@@ -364,7 +364,7 @@ these as advertised capabilities awaiting implementation, not verified features.
 | `state.py` | `homily_agent/state.py` | Pydantic models: `HomilyAgentState`, `UserPreferences`, `GeneratedHomily`, `HomilySection` |
 | `agent.py` | `homily_agent/agent.py` | `HomilyAgent` — core logic: parse, generate, refine, validate, format |
 | `graph.py` | `homily_agent/graph.py` | `create_homily_graph()` — LangGraph state machine |
-| `generator.py` | `homily_agent/generator.py` | `HomilyGenerator` — section-based generation engine |
+| `generator.py` / `composition.py` | `homily_agent/` | Shared model factory, bounded context, full-draft rewrite, section/count validation |
 | `main.py` | `homily_agent/main.py` | A2A server entry point |
 | `rag/embeddings.py` | `homily_agent/rag/embeddings.py` | `EmbeddingService` — sentence-transformers wrapper |
 | `rag/retrieval.py` | `homily_agent/rag/retrieval.py` | ChromaDB vector search, configurable top-k/min-similarity |
@@ -380,11 +380,11 @@ Parse Request (extract preferences, set defaults)
  ↓
 RAG Retrieval (query theological knowledge base via ChromaDB)
  ↓
-Template Selection (intro → reflection → application → conclusion)
+Context Assembly (full readings, bounded sources, preferences, existing draft)
  ↓
-Section Assembly (4 occasion-specific templates; retrieved passage text unused)
+Model Composition (4 sections; one correction for invalid structure/length)
  ↓
-Structural Completeness (nonblank intro/reflection/application/conclusion)
+Structural Completeness + approximate word count (±15%)
  ↓
 Format Response (A2A JSON-RPC 2.0)
 ```
@@ -413,7 +413,9 @@ Context Assembly (for LLM prompt)
 |-----------|---------|---------|
 | `target_audience` | `adults`, `youth`, `children`, `mixed` | `adults` |
 | `tone` | `formal`, `conversational`, `poetic`, `consolatory`, `celebratory` | `formal` |
-| `length` | `short` (5-7 min), `medium` (10-12 min), `long` (15+ min) | `medium` |
+| `length` | `short` (650 words), `medium` (1100), `long` (1600) | `medium` |
+| `target_word_count` | Explicit integer 50–3000; overrides length | `None` |
+| `instructions` | Full user request/revision constraints, at most 4000 characters | `None` |
 | `themes` | Array of theme strings | `None` |
 | `metaphors` | Array of metaphor strings | `None` |
 | `analogies` | Array of analogy strings | `None` |
@@ -659,6 +661,9 @@ invoke the agent runtime.
 | `EMBEDDING_MODEL` | `sentence-transformers/all-MiniLM-L6-v2` | Embedding model for RAG |
 | `RAG_TOP_K` | `5` | Documents to retrieve per query |
 | `RAG_MIN_SIMILARITY` | `0.7` | Minimum cosine similarity threshold |
+| `HOMILY_MODEL_TIMEOUT_SECONDS` | `45` | Provider deadline per composition attempt; SDK retries disabled |
+| `HOMILY_MAX_OUTPUT_TOKENS` | `4096` | Provider output cap, configurable within model limits |
+| `HOMILY_REQUEST_TIMEOUT_SECONDS` | `110` | A2A homily deadline, one HTTP attempt |
 | `AGENT_CONTRACT_PATH` | — | Path to A2A contract JSON |
 | `AGENT_URL` | — | Public URL for this agent |
 
@@ -826,6 +831,7 @@ Chainlit. Failures are isolated: a UI crash cannot take down the API.
 
 | Module | Purpose |
 |---|---|
+| `presentation.py` | Transient progress, lazy timestamped answer, completion-only actions and interruption handling |
 | `app.py` | Chainlit entry point: lifecycle hooks (start/resume/message/settings/stop/logout), starters, quota, one boundary log line per turn |
 | `runner.py` | The only core import surface (`application.stream_chat`, rate limiter) — the test seam |
 | `history.py` | Model-visible history: in-session accumulation and `ThreadDict` reconstruction (user/assistant text only) |

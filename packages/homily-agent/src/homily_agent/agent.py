@@ -106,7 +106,7 @@ class HomilyAgent:
         logger.info("Refining existing homily")
         
         try:
-            if state.existing_draft is None:
+            if state.existing_draft is None or not state.existing_draft.strip():
                 raise ValueError("No existing draft to refine")
                 
             preferences = state.user_preferences or UserPreferences()

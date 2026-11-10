@@ -15,7 +15,7 @@ dependencies = [
     "httpx>=0.25.0",
     "uvicorn>=0.27.0",
     "sse-starlette>=2.0.0",
-    "a2a-protocol",
+    "a2a-protocol[anthropic,google,openai]",
     "chromadb>=0.5.0,<0.6.0",
 ]
 
