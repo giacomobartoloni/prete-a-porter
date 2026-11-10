@@ -1,0 +1,35 @@
+# Two isolated real HTTP processes. No LLM, Tavily, or database credentials.
+services:
+  fake-provider:
+    image: python:3.12-alpine
+    command: ["python", "-u", "/srv/fake_provider.py"]
+    volumes:
+      - ./fake_provider.py:/srv/fake_provider.py:ro
+    ports:
+      - "8080"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/health', timeout=2)"]
+      interval: 2s
+      timeout: 3s
+      retries: 25
+
+  orchestrator:
+    build:
+      context: ../..
+      dockerfile: packages/chat-orchestrator/Dockerfile
+    environment:
+      ORCHESTRATOR_API_KEY: e2e-shell-token
+      OPENAI_API_KEY: e2e-fake-llm-key
+      OPENAI_MODEL_NAME: e2e-scripted-model
+      OPENAI_BASE_URL: http://fake-provider:8080/v1
+      TAVILY_API_KEY: e2e-fake-tavily-key
+      TAVILY_API_URL: http://fake-provider:8080/search
+      TEST_MODE: "false"
+      RATE_LIMIT_DB_PATH: /tmp/e2e-rate-limiter.sqlite3
+      RATE_LIMIT_MESSAGES_PER_HOUR: "1000"
+      CHAT_REQUEST_TIMEOUT_SECONDS: "45"
+    depends_on:
+      fake-provider:
+        condition: service_healthy
+    ports:
+      - "8000"
