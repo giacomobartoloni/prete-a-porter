@@ -149,7 +149,7 @@ class LiturgyAgentHandler:
                     target_date
                 )
 
-                # Cache the result
+                # Cache the result (set validates completeness)
                 cache.set(reading)
                 logger.info("Scraped readings cached successfully.")
 
@@ -191,7 +191,7 @@ class LiturgyAgentHandler:
             logger.error(f"Unknown occasion: {occasion}")
             raise ValueError(
                 f"Unknown occasion: {occasion}. "
-                f"Valid options: sunday, mass, weekday, marriage, baptism, funeral"
+                f"Valid options: sunday, mass, weekday, daily, marriage, baptism, funeral"
             )
     
     async def _handle_get_lectionary(self, params: Dict[str, Any]) -> Dict[str, Any]:

@@ -86,3 +86,20 @@ def test_create_llm_error_explains_missing_openai_dependency(monkeypatch):
         create_llm()
 
     assert "OPENAI_API_KEY is set but langchain_openai is not installed" in str(excinfo.value)
+
+
+@pytest.mark.parametrize('provider,module,cls,token_key',[
+    ('OPENAI','langchain_openai','ChatOpenAI','max_tokens'),
+    ('ANTHROPIC','langchain_anthropic','ChatAnthropic','max_tokens'),
+    ('GOOGLE','langchain_google_genai','ChatGoogleGenerativeAI','max_output_tokens'),
+])
+def test_explicit_runtime_limits_reach_each_provider(monkeypatch,provider,module,cls,token_key):
+    observed={}
+    class Provider:
+        def __init__(self,**kwargs): observed.update(kwargs)
+    monkeypatch.setenv(provider+'_API_KEY','test-key')
+    monkeypatch.setitem(sys.modules,module,types.SimpleNamespace(**{cls:Provider}))
+    create_llm(timeout=25,max_retries=0,max_tokens=12000)
+    assert observed['timeout']==25
+    assert observed['max_retries']==0
+    assert observed[token_key]==12000

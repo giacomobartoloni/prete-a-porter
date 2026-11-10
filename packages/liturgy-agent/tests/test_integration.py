@@ -258,6 +258,9 @@ class TestBuildReadingFromScraped:
         scraped = self._make_scraped_data("2026-05-24")
         date = datetime(2026, 5, 24)
 
+        scraped["sources"]["evangelizo.ws"]["second_reading"] = {
+            "reference": "1 Cor 12,3-7", "text": "Second reading", "type": "Second"
+        }
         result = agent._build_reading_from_scraped(scraped, date)
 
         assert result.metadata.sunday_or_weekday == "Sunday"

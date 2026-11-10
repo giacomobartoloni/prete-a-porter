@@ -4,7 +4,9 @@
   "transport": {
     "type": "http",
     "port": 8001,
-    "endpoint": "/a2a"
+    "endpoint": "/",
+    "message_send_endpoint": "/message:send",
+    "authentication": "HTTP Basic Auth on application routes; /health is public"
   },
   "protocol": {
     "type": "jsonrpc",
@@ -14,26 +16,33 @@
     {
       "name": "agent.ping",
       "description": "Health check endpoint. Returns pong response with agent metadata.",
-      "params": {},
+      "params": {
+        "additionalProperties": false,
+        "properties": {},
+        "type": "object"
+      },
       "returns": {
-        "type": "object",
+        "additionalProperties": false,
         "properties": {
           "status": {
-            "type": "string",
             "const": "pong",
-            "description": "Health check response status"
+            "type": "string"
           },
           "agent": {
             "type": "string",
-            "const": "liturgy_agent",
-            "description": "Agent identifier"
+            "const": "liturgy_agent"
           },
           "version": {
-            "type": "string",
-            "description": "Agent version string"
+            "pattern": "\\S",
+            "type": "string"
           }
         },
-        "required": ["status", "agent", "version"]
+        "required": [
+          "status",
+          "agent",
+          "version"
+        ],
+        "type": "object"
       },
       "examples": {
         "request": {
@@ -48,7 +57,7 @@
           "result": {
             "status": "pong",
             "agent": "liturgy_agent",
-            "version": "1.0.0"
+            "version": "0.1.0"
           }
         }
       }
@@ -57,128 +66,430 @@
       "name": "liturgy_agent.get_readings",
       "description": "Get liturgical readings for a specific occasion and optional date. Returns readings from web scraping (for daily mass) or lectionary files (for special occasions).",
       "params": {
-        "type": "object",
+        "additionalProperties": false,
         "properties": {
           "occasion": {
-            "type": "string",
-            "description": "Occasion type for readings",
-            "enum": ["sunday", "mass", "weekday", "daily", "marriage", "baptism", "funeral"]
+            "enum": [
+              "sunday",
+              "mass",
+              "weekday",
+              "daily",
+              "marriage",
+              "baptism",
+              "funeral"
+            ],
+            "type": "string"
           },
           "date": {
-            "type": "string",
-            "format": "date",
-            "description": "Optional date in YYYY-MM-DD format. Defaults to current date if not provided."
+            "anyOf": [
+              {
+                "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
           }
         },
-        "required": ["occasion"]
+        "required": [
+          "occasion"
+        ],
+        "type": "object"
       },
       "returns": {
-        "type": "object",
-        "properties": {
-          "status": {
-            "type": "string",
-            "enum": ["success", "error"],
-            "description": "Request status"
-          },
-          "data": {
-            "type": "object",
-            "description": "Readings data object (structure varies by occasion)",
+        "oneOf": [
+          {
+            "additionalProperties": false,
             "properties": {
-              "date": {
-                "type": "string",
-                "description": "Date of readings"
+              "status": {
+                "const": "success",
+                "type": "string"
               },
-              "occasion": {
-                "type": "string",
-                "description": "Occasion type"
-              },
-              "season": {
-                "type": "string",
-                "description": "Liturgical season (e.g., Lent, Easter)"
-              },
-              "color": {
-                "type": "string",
-                "description": "Liturgical color"
-              },
-              "year_cycle": {
-                "type": "string",
-                "description": "Liturgical year cycle (A, B, or C)"
-              },
-              "readings": {
-                "type": "object",
-                "description": "Reading objects keyed by type",
+              "data": {
+                "additionalProperties": false,
                 "properties": {
-                  "first_reading": {
-                    "type": "object",
+                  "date": {
+                    "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+                    "type": "string"
+                  },
+                  "occasion": {
+                    "const": "mass",
+                    "type": "string"
+                  },
+                  "metadata": {
+                    "additionalProperties": false,
                     "properties": {
-                      "reference": { "type": "string" },
-                      "type": { "type": "string" },
-                      "text": { "type": "string" },
-                      "source": { "type": "string" }
-                    }
+                      "date": {
+                        "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+                        "type": "string"
+                      },
+                      "occasion": {
+                        "enum": [
+                          "mass",
+                          "marriage",
+                          "baptism",
+                          "funeral"
+                        ],
+                        "type": "string"
+                      },
+                      "season": {
+                        "pattern": "\\S",
+                        "type": "string"
+                      },
+                      "color": {
+                        "pattern": "\\S",
+                        "type": "string"
+                      },
+                      "year_cycle": {
+                        "enum": [
+                          "A",
+                          "B",
+                          "C"
+                        ],
+                        "type": "string"
+                      },
+                      "sunday_or_weekday": {
+                        "enum": [
+                          "Sunday",
+                          "Weekday"
+                        ],
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "date",
+                      "occasion",
+                      "season",
+                      "color",
+                      "year_cycle",
+                      "sunday_or_weekday"
+                    ],
+                    "type": "object"
+                  },
+                  "first_reading": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "reference": {
+                        "pattern": "\\S",
+                        "type": "string"
+                      },
+                      "text": {
+                        "pattern": "\\S",
+                        "type": "string"
+                      },
+                      "type": {
+                        "enum": [
+                          "First",
+                          "Second",
+                          "Gospel",
+                          "Psalm",
+                          "Alleluia"
+                        ],
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "reference",
+                      "text",
+                      "type"
+                    ],
+                    "type": "object"
                   },
                   "psalm": {
-                    "type": "object",
+                    "additionalProperties": false,
                     "properties": {
-                      "reference": { "type": "string" },
-                      "type": { "type": "string" },
-                      "text": { "type": "string" },
-                      "source": { "type": "string" }
-                    }
+                      "reference": {
+                        "pattern": "\\S",
+                        "type": "string"
+                      },
+                      "text": {
+                        "pattern": "\\S",
+                        "type": "string"
+                      },
+                      "type": {
+                        "enum": [
+                          "First",
+                          "Second",
+                          "Gospel",
+                          "Psalm",
+                          "Alleluia"
+                        ],
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "reference",
+                      "text",
+                      "type"
+                    ],
+                    "type": "object"
                   },
                   "second_reading": {
-                    "type": "object",
-                    "properties": {
-                      "reference": { "type": "string" },
-                      "type": { "type": "string" },
-                      "text": { "type": "string" },
-                      "source": { "type": "string" }
-                    }
+                    "anyOf": [
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "reference": {
+                            "pattern": "\\S",
+                            "type": "string"
+                          },
+                          "text": {
+                            "pattern": "\\S",
+                            "type": "string"
+                          },
+                          "type": {
+                            "enum": [
+                              "First",
+                              "Second",
+                              "Gospel",
+                              "Psalm",
+                              "Alleluia"
+                            ],
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "reference",
+                          "text",
+                          "type"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "default": null
                   },
                   "gospel": {
-                    "type": "object",
+                    "additionalProperties": false,
                     "properties": {
-                      "reference": { "type": "string" },
-                      "type": { "type": "string" },
-                      "text": { "type": "string" },
-                      "source": { "type": "string" }
-                    }
+                      "reference": {
+                        "pattern": "\\S",
+                        "type": "string"
+                      },
+                      "text": {
+                        "pattern": "\\S",
+                        "type": "string"
+                      },
+                      "type": {
+                        "enum": [
+                          "First",
+                          "Second",
+                          "Gospel",
+                          "Psalm",
+                          "Alleluia"
+                        ],
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "reference",
+                      "text",
+                      "type"
+                    ],
+                    "type": "object"
+                  },
+                  "alleluia_verse": {
+                    "anyOf": [
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "reference": {
+                            "pattern": "\\S",
+                            "type": "string"
+                          },
+                          "text": {
+                            "pattern": "\\S",
+                            "type": "string"
+                          },
+                          "type": {
+                            "enum": [
+                              "First",
+                              "Second",
+                              "Gospel",
+                              "Psalm",
+                              "Alleluia"
+                            ],
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "reference",
+                          "text",
+                          "type"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "default": null
+                  },
+                  "cached_at": {
+                    "format": "date-time",
+                    "type": "string"
+                  },
+                  "source": {
+                    "pattern": "\\S",
+                    "type": "string"
                   }
-                }
+                },
+                "required": [
+                  "date",
+                  "occasion",
+                  "metadata",
+                  "first_reading",
+                  "psalm",
+                  "gospel",
+                  "cached_at",
+                  "source"
+                ],
+                "type": "object"
+              },
+              "source": {
+                "enum": [
+                  "web",
+                  "cache"
+                ],
+                "type": "string"
               }
-            }
+            },
+            "required": [
+              "status",
+              "data",
+              "source"
+            ],
+            "type": "object"
           },
-          "source": {
-            "type": "string",
-            "enum": ["web", "cache", "lectionary"],
-            "description": "Data source"
+          {
+            "additionalProperties": false,
+            "properties": {
+              "status": {
+                "const": "success",
+                "type": "string"
+              },
+              "data": {
+                "additionalProperties": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "occasion_name": {
+                      "pattern": "\\S",
+                      "type": "string"
+                    },
+                    "general_readings": {
+                      "items": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "reference": {
+                            "pattern": "\\S",
+                            "type": "string"
+                          },
+                          "text": {
+                            "pattern": "\\S",
+                            "type": "string"
+                          },
+                          "type": {
+                            "enum": [
+                              "First",
+                              "Second",
+                              "Gospel",
+                              "Psalm",
+                              "Alleluia"
+                            ],
+                            "type": "string"
+                          },
+                          "id": {
+                            "exclusiveMinimum": 0,
+                            "type": "integer"
+                          },
+                          "theme": {
+                            "pattern": "\\S",
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "reference",
+                          "text",
+                          "type",
+                          "id",
+                          "theme"
+                        ],
+                        "type": "object"
+                      },
+                      "type": "array"
+                    }
+                  },
+                  "required": [
+                    "occasion_name",
+                    "general_readings"
+                  ],
+                  "type": "object"
+                },
+                "propertyNames": {
+                  "enum": [
+                    "marriage",
+                    "baptism",
+                    "funeral"
+                  ]
+                },
+                "type": "object"
+              },
+              "source": {
+                "const": "lectionary",
+                "type": "string"
+              }
+            },
+            "required": [
+              "status",
+              "data",
+              "source"
+            ],
+            "type": "object"
           },
-          "error": {
-            "type": "string",
-            "description": "Error message if status is 'error'"
-          },
-          "message": {
-            "type": "string",
-            "description": "Additional error context"
+          {
+            "additionalProperties": false,
+            "properties": {
+              "status": {
+                "const": "error",
+                "type": "string"
+              },
+              "error": {
+                "pattern": "\\S",
+                "type": "string"
+              },
+              "message": {
+                "anyOf": [
+                  {
+                    "pattern": "\\S",
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null
+              }
+            },
+            "required": [
+              "status",
+              "error"
+            ],
+            "type": "object"
           }
-        },
-        "required": ["status"]
+        ]
       },
       "errors": [
         {
-          "code": -32602,
-          "message": "Missing required parameter: occasion",
-          "condition": "occasion param not provided"
-        },
-        {
-          "code": -32602,
-          "message": "Invalid date format: {date}. Use YYYY-MM-DD",
-          "condition": "date param is not valid ISO format"
-        },
-        {
-          "code": -32602,
-          "message": "Unknown occasion: {occasion}. Valid options: sunday, mass, weekday, marriage, baptism, funeral",
-          "condition": "occasion not in valid enum"
+          "code": -32603,
+          "message": "Internal error",
+          "data": {
+            "error_id": "example1"
+          },
+          "condition": "Custom handler rejects input or fails; details are logged server-side only"
         }
       ],
       "examples": {
@@ -187,8 +498,8 @@
           "id": "2",
           "method": "liturgy_agent.get_readings",
           "params": {
-            "occasion": "mass",
-            "date": "2026-03-18"
+            "occasion": "daily",
+            "date": "2026-05-19"
           }
         },
         "response_daily_mass": {
@@ -197,31 +508,35 @@
           "result": {
             "status": "success",
             "data": {
-              "date": "2026-03-18",
+              "date": "2026-05-19",
               "occasion": "mass",
-              "season": "Lent",
-              "color": "Purple",
-              "year_cycle": "A",
-              "readings": {
-                "first_reading": {
-                  "reference": "Genesis 1:26-28, 31a",
-                  "type": "First",
-                  "text": "Then God said: Let us make human beings...",
-                  "source": "evangelizo.org"
-                },
-                "psalm": {
-                  "reference": "Psalm 128:1-2, 3, 4-5",
-                  "type": "Psalm",
-                  "text": "Blessed are all who fear the Lord...",
-                  "source": "evangelizo.org"
-                },
-                "gospel": {
-                  "reference": "John 15:9-12",
-                  "type": "Gospel",
-                  "text": "Jesus said to his disciples: As the Father loves me...",
-                  "source": "evangelizo.org"
-                }
-              }
+              "metadata": {
+                "date": "2026-05-19",
+                "occasion": "mass",
+                "season": "Ordinary",
+                "color": "Green",
+                "year_cycle": "A",
+                "sunday_or_weekday": "Weekday"
+              },
+              "first_reading": {
+                "reference": "Gc 4,13-17",
+                "text": "First reading text.",
+                "type": "First"
+              },
+              "psalm": {
+                "reference": "Sal 48",
+                "text": "Psalm text.",
+                "type": "Psalm"
+              },
+              "second_reading": null,
+              "gospel": {
+                "reference": "Mc 9,38-40",
+                "text": "Gospel text.",
+                "type": "Gospel"
+              },
+              "alleluia_verse": null,
+              "cached_at": "2026-05-19T08:00:00+00:00",
+              "source": "evangelizo.org"
             },
             "source": "web"
           }
@@ -240,69 +555,162 @@
           "result": {
             "status": "success",
             "data": {
-              "occasion_name": "marriage",
-              "general_readings": [
-                {
-                  "id": 1,
-                  "reference": "Mt 19:4-6",
-                  "text": "Jesus said...",
-                  "type": "Gospel",
-                  "theme": "Unity"
-                }
-              ]
+              "marriage": {
+                "occasion_name": "Wedding Ceremony",
+                "general_readings": [
+                  {
+                    "id": 1,
+                    "reference": "Mt 19,4-6",
+                    "text": "The two shall become one flesh.",
+                    "type": "Gospel",
+                    "theme": "Unity"
+                  }
+                ]
+              }
             },
             "source": "lectionary"
           }
+        },
+        "response_upstream_error": {
+          "jsonrpc": "2.0",
+          "id": "2",
+          "result": {
+            "status": "error",
+            "error": "Fixture upstream unavailable",
+            "message": "Could not fetch readings from web sources"
+          }
+        },
+        "response_invalid_params": {
+          "jsonrpc": "2.0",
+          "id": "2",
+          "error": {
+            "code": -32603,
+            "message": "Internal error",
+            "data": {
+              "error_id": "example1"
+            }
+          }
         }
-      }
+      },
+      "semantics": "sunday/mass/weekday/daily return canonical mass with top-level readings. Sunday metadata requires nonblank second reading; weekday second is optional. Ritual data is keyed by marriage/baptism/funeral; upstream failure is status=error."
     },
     {
       "name": "liturgy_agent.get_lectionary",
       "description": "Get lectionary options for a specific occasion. Returns available readings from pre-loaded lectionary files.",
       "params": {
-        "type": "object",
+        "additionalProperties": false,
         "properties": {
           "occasion": {
-            "type": "string",
-            "description": "Occasion type for lectionary lookup",
-            "enum": ["marriage", "baptism", "funeral"]
+            "enum": [
+              "marriage",
+              "baptism",
+              "funeral"
+            ],
+            "type": "string"
           }
         },
-        "required": ["occasion"]
+        "required": [
+          "occasion"
+        ],
+        "type": "object"
       },
       "returns": {
-        "type": "object",
+        "additionalProperties": false,
         "properties": {
           "occasion": {
-            "type": "string",
-            "description": "Occasion type requested"
+            "enum": [
+              "marriage",
+              "baptism",
+              "funeral"
+            ],
+            "type": "string"
           },
           "lectionary": {
-            "type": "object",
-            "description": "Lectionary data with available readings"
+            "additionalProperties": {
+              "additionalProperties": false,
+              "properties": {
+                "occasion_name": {
+                  "pattern": "\\S",
+                  "type": "string"
+                },
+                "general_readings": {
+                  "items": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "reference": {
+                        "pattern": "\\S",
+                        "type": "string"
+                      },
+                      "text": {
+                        "pattern": "\\S",
+                        "type": "string"
+                      },
+                      "type": {
+                        "enum": [
+                          "First",
+                          "Second",
+                          "Gospel",
+                          "Psalm",
+                          "Alleluia"
+                        ],
+                        "type": "string"
+                      },
+                      "id": {
+                        "exclusiveMinimum": 0,
+                        "type": "integer"
+                      },
+                      "theme": {
+                        "pattern": "\\S",
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "reference",
+                      "text",
+                      "type",
+                      "id",
+                      "theme"
+                    ],
+                    "type": "object"
+                  },
+                  "type": "array"
+                }
+              },
+              "required": [
+                "occasion_name",
+                "general_readings"
+              ],
+              "type": "object"
+            },
+            "propertyNames": {
+              "enum": [
+                "marriage",
+                "baptism",
+                "funeral"
+              ]
+            },
+            "type": "object"
           },
           "readings_count": {
-            "type": "integer",
-            "description": "Number of readings available"
+            "minimum": 0,
+            "type": "integer"
           }
         },
-        "required": ["occasion", "lectionary", "readings_count"]
+        "required": [
+          "occasion",
+          "lectionary",
+          "readings_count"
+        ],
+        "type": "object"
       },
       "errors": [
         {
-          "code": -32602,
-          "message": "Missing required parameter: occasion",
-          "condition": "occasion param not provided"
-        },
-        {
-          "code": -32602,
-          "message": "No lectionary found for occasion: {occasion}",
-          "condition": "occasion not found in lectionary files"
-        },
-        {
           "code": -32603,
-          "message": "'LiturgyAgent' object has no attribute 'load_lectionary'",
-          "condition": "Known bug: method implementation incomplete"
+          "message": "Internal error",
+          "data": {
+            "error_id": "example1"
+          },
+          "condition": "Custom handler rejects input or fails; details are logged server-side only"
         }
       ],
       "examples": {
@@ -320,16 +728,18 @@
           "result": {
             "occasion": "marriage",
             "lectionary": {
-              "occasion_name": "marriage",
-              "general_readings": [
-                {
-                  "id": 1,
-                  "reference": "Mt 19:4-6",
-                  "text": "Jesus said...",
-                  "type": "Gospel",
-                  "theme": "Unity"
-                }
-              ]
+              "marriage": {
+                "occasion_name": "Wedding Ceremony",
+                "general_readings": [
+                  {
+                    "id": 1,
+                    "reference": "Mt 19,4-6",
+                    "text": "The two shall become one flesh.",
+                    "type": "Gospel",
+                    "theme": "Unity"
+                  }
+                ]
+              }
             },
             "readings_count": 1
           }
@@ -339,27 +749,21 @@
           "id": "4",
           "error": {
             "code": -32603,
-            "message": "'LiturgyAgent' object has no attribute 'load_lectionary'"
+            "message": "Internal error",
+            "data": {
+              "error_id": "example1"
+            }
           }
         }
-      },
-      "notes": [
-        "KNOWN BUG: This method currently fails with AttributeError due to missing 'load_lectionary' method in LiturgyAgent class.",
-        "The method '_load_lectionary' exists but 'load_lectionary' (without underscore) is called.",
-        "This should be fixed before production use."
-      ]
+      }
     }
   ],
   "error_codes": {
-    "-32700": "Parse error - Invalid JSON received",
-    "-32600": "Invalid Request - JSON sent is not a valid Request object",
-    "-32601": "Method not found - Method does not exist",
-    "-32602": "Invalid params - Invalid method parameter(s)",
-    "-32603": "Internal error - Internal JSON-RPC error",
-    "-32000": "Agent not found",
-    "-32001": "Agent timeout",
-    "-32002": "Agent busy",
-    "-32003": "Transport error",
-    "-32004": "Serialization error"
+    "-32603": "Internal error; sanitized custom-handler failure with data.error_id"
+  },
+  "error_semantics": {
+    "custom_root": "Custom method exceptions (unknown method, invalid/missing parameters, unexpected failures) return -32603 Internal error with data.error_id. Typed -32601/-32602 mapping is deferred.",
+    "message_send": "Handler exceptions inside message/send become sanitized error text in the agent reply, not a JSON-RPC error envelope.",
+    "built_in_routes": "Task routing has separate behavior; this contract does not promise custom-handler -32601/-32602 or domain-specific codes."
   }
 }

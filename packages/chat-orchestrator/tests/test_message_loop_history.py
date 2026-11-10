@@ -1,7 +1,7 @@
 """The message loop rebuilds history from the request and passes no thread_id.
 
 There is no server-side conversation state: every turn supplies its own history,
-and the graph is invoked without a thread_id.
+and execution goes through application.run_chat.
 """
 
 import json
@@ -9,7 +9,6 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from fastapi import WebSocketDisconnect
-from langchain_core.messages import AIMessage, HumanMessage
 
 from chat_orchestrator.routes import _message_loop
 
@@ -32,63 +31,46 @@ def _ws(payloads):
     return ws
 
 
-def _graph():
-    graph = MagicMock(spec=["ainvoke"])
-    graph.ainvoke = AsyncMock(return_value={"messages": [AIMessage(content="ok")]})
-    return graph
-
-
 class TestMessageLoopHistory:
     @pytest.mark.asyncio
-    async def test_history_is_replayed_then_new_text(self):
+    async def test_history_is_replayed_then_new_text(self, monkeypatch):
+        run_chat = AsyncMock(return_value="ok")
+        monkeypatch.setattr("chat_orchestrator.routes.run_chat", run_chat)
         ws = _ws([json.dumps({"text": "latest", "history": [{"content": "first"}, {"content": "second"}]})])
-        graph = _graph()
 
         try:
-            await _message_loop(ws, graph, "session-1", "user-1", "corr-1")
+            await _message_loop(ws, "session-1", "user-1", "corr-1")
         except WebSocketDisconnect:
             pass
 
-        msgs = graph.ainvoke.call_args[0][0]["messages"]
+        msgs = run_chat.await_args.args[0]
         assert [m.content for m in msgs] == ["first", "second", "latest"]
-        assert all(isinstance(m, HumanMessage) for m in msgs)
+        assert all(m.role == "user" for m in msgs)
 
     @pytest.mark.asyncio
-    async def test_no_thread_id_in_config(self):
-        """The graph is stateless, so no thread_id may be passed."""
+    async def test_run_chat_receives_session_id_only(self, monkeypatch):
+        """run_chat gets session_id; routes must not invent thread_id/checkpointer."""
+        run_chat = AsyncMock(return_value="ok")
+        monkeypatch.setattr("chat_orchestrator.routes.run_chat", run_chat)
         ws = _ws([json.dumps({"text": "hi", "history": []})])
-        graph = _graph()
 
         try:
-            await _message_loop(ws, graph, "session-1", "user-1", "corr-1")
+            await _message_loop(ws, "session-1", "user-1", "corr-1")
         except WebSocketDisconnect:
             pass
 
-        config = graph.ainvoke.call_args[1]["config"]
-        assert config == {"recursion_limit": 15}
+        assert run_chat.await_args.kwargs == {"session_id": "session-1"}
 
     @pytest.mark.asyncio
-    async def test_no_checkpointer_attribute_is_read(self):
-        """A graph without a checkpointer must not cause an AttributeError path."""
-        ws = _ws([json.dumps({"text": "hi"})])
-        graph = _graph()
-
-        try:
-            await _message_loop(ws, graph, "session-1", "user-1", "corr-1")
-        except WebSocketDisconnect:
-            pass
-
-        graph.ainvoke.assert_awaited_once()
-
-    @pytest.mark.asyncio
-    async def test_non_json_message_uses_raw_text(self):
+    async def test_non_json_message_uses_raw_text(self, monkeypatch):
+        run_chat = AsyncMock(return_value="ok")
+        monkeypatch.setattr("chat_orchestrator.routes.run_chat", run_chat)
         ws = _ws(["plain text message"])
-        graph = _graph()
 
         try:
-            await _message_loop(ws, graph, "session-1", "user-1", "corr-1")
+            await _message_loop(ws, "session-1", "user-1", "corr-1")
         except WebSocketDisconnect:
             pass
 
-        msgs = graph.ainvoke.call_args[0][0]["messages"]
+        msgs = run_chat.await_args.args[0]
         assert [m.content for m in msgs] == ["plain text message"]

@@ -44,6 +44,18 @@ jobs:
         working-directory: contracts
         run: uv sync
 
+      - name: Start fixture Evangelizo upstream
+        run: |
+          python contracts/scripts/fixture_evangelizo_server.py --host 127.0.0.1 --port 18080 &
+          echo "FIXTURE_PID=$!" >> $GITHUB_ENV
+
+      - name: Wait for fixture upstream
+        run: |
+          python contracts/scripts/wait_for_health.py \
+            http://127.0.0.1:18080/health \
+            --attempts 30 \
+            --sleep 1
+
       - name: Start liturgy agent
         working-directory: packages/liturgy-agent
         run: |
@@ -52,6 +64,9 @@ jobs:
         env:
           TEST_MODE: true
           DATABASE_PATH: /tmp/liturgy_cache.db
+          EVANGELIZO_BASE_URL: http://127.0.0.1:18080
+          A2A_BASIC_AUTH_USERNAME: a2a-test
+          A2A_BASIC_AUTH_PASSWORD: a2a-test-secret
 
       - name: Start homily agent
         working-directory: packages/homily-agent
@@ -60,6 +75,8 @@ jobs:
           echo "HOMILY_PID=$!" >> $GITHUB_ENV
         env:
           TEST_MODE: true
+          A2A_BASIC_AUTH_USERNAME: a2a-test
+          A2A_BASIC_AUTH_PASSWORD: a2a-test-secret
 
       - name: Start chat orchestrator
         working-directory: packages/chat-orchestrator
@@ -77,36 +94,18 @@ jobs:
           CHAT_REQUEST_TIMEOUT_SECONDS: "60"
           A2A_LITURGY_URL: http://localhost:8001
           A2A_HOMILY_URL: http://localhost:8002
+          A2A_BASIC_AUTH_USERNAME: a2a-test
+          A2A_BASIC_AUTH_PASSWORD: a2a-test-secret
           CORS_ORIGINS: http://localhost:3000
 
       - name: Wait for agents to be ready
         run: |
-          echo "Waiting for liturgy agent on port 8001..."
-          for i in {1..30}; do
-            if curl -s http://localhost:8001/health > /dev/null 2>&1; then
-              echo "Liturgy agent is ready"
-              break
-            fi
-            sleep 1
-          done
-
-          echo "Waiting for homily agent on port 8002..."
-          for i in {1..30}; do
-            if curl -s http://localhost:8002/health > /dev/null 2>&1; then
-              echo "Homily agent is ready"
-              break
-            fi
-            sleep 1
-          done
-
-          echo "Waiting for chat orchestrator on port 8000..."
-          for i in {1..30}; do
-            if curl -s http://localhost:8000/health > /dev/null 2>&1; then
-              echo "Chat orchestrator is ready"
-              break
-            fi
-            sleep 1
-          done
+          python contracts/scripts/wait_for_health.py \
+            http://localhost:8001/health \
+            http://localhost:8002/health \
+            http://localhost:8000/health \
+            --attempts 30 \
+            --sleep 1
 
       - name: Run contract tests
         working-directory: contracts
@@ -114,6 +113,9 @@ jobs:
         env:
           A2A_LITURGY_URL: http://localhost:8001
           A2A_HOMILY_URL: http://localhost:8002
+          CHAT_ORCHESTRATOR_URL: http://localhost:8000
+          A2A_BASIC_AUTH_USERNAME: a2a-test
+          A2A_BASIC_AUTH_PASSWORD: a2a-test-secret
           WS_JWT_SECRET: test-jwt-secret-for-ci-32-bytes-minimum
           ORCHESTRATOR_API_KEY: test-orchestrator-key
           RATE_LIMIT_MESSAGES_PER_HOUR: "3"
@@ -137,4 +139,7 @@ jobs:
           fi
           if [ -n "$CHAT_PID" ]; then
             kill $CHAT_PID 2>/dev/null || true
+          fi
+          if [ -n "$FIXTURE_PID" ]; then
+            kill $FIXTURE_PID 2>/dev/null || true
           fi

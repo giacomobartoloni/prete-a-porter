@@ -41,7 +41,8 @@ class ChatPreferences(BaseModel):
 
 PREFERENCE_BLOCK_TEMPLATE = (
     "Preferenze richieste dall'utente per questa conversazione: {pairs}. "
-    "Applica questi parametri quando chiami generate_homily o refine_homily."
+    "Usali salvo modifiche esplicite nella richiesta corrente. In refine_homily passa le modifiche "
+    "esplicite di destinatari o tono in preference_changes; una semplice riscrittura li conserva."
 )
 
 
@@ -67,9 +68,7 @@ def flatten_content(content: str | list[dict[str, Any]]) -> str:
     if isinstance(content, str):
         return content
     return "\n".join(
-        block.get("text", "")
-        for block in content
-        if isinstance(block, dict) and block.get("type") == "text"
+        block.get("text", "") for block in content if isinstance(block, dict) and block.get("type") == "text"
     )
 
 
@@ -79,10 +78,9 @@ def to_langchain_messages(
 ) -> list[BaseMessage]:
     """Map OpenAI roles onto LangChain messages.
 
-    Unknown roles become HumanMessage, matching the treatment the WebSocket
-    loop already applies to every history entry. When ``preferences`` are
-    provided, a system message carrying the deterministic block is prepended;
-    it exists only for this invocation and is never persisted by any adapter.
+    Unknown roles become HumanMessage. When ``preferences`` are provided, a
+    system message carrying the deterministic block is prepended; it exists
+    only for this invocation and is never persisted by any adapter.
     """
     converted: list[BaseMessage] = []
     for message in messages:
@@ -100,6 +98,29 @@ def to_langchain_messages(
     return converted
 
 
+def websocket_history_to_messages(
+    history: list[dict[str, Any]] | None,
+    text: str,
+) -> list[ChatMessage]:
+    """Build ChatMessages for the legacy WebSocket loop.
+
+    Only ``user`` and ``assistant`` roles are accepted. Missing role defaults
+    to ``user``. Client-supplied ``system`` (or any other) role is coerced to
+    ``user`` so history cannot inject system authority.
+    """
+    messages: list[ChatMessage] = []
+    for entry in history or []:
+        content = entry.get("content")
+        if not content:
+            continue
+        role = entry.get("role") or "user"
+        if role not in ("user", "assistant"):
+            role = "user"
+        messages.append(ChatMessage(role=role, content=content))
+    messages.append(ChatMessage(role="user", content=text))
+    return messages
+
+
 def extract_reply_text(result: dict[str, Any]) -> str:
     """Pull the assistant's reply out of a graph invocation result."""
     messages = result.get("messages") or []
@@ -112,9 +133,7 @@ def extract_reply_text(result: dict[str, Any]) -> str:
         return raw
     if isinstance(raw, list):
         joined = "\n".join(
-            block.get("text", "")
-            for block in raw
-            if isinstance(block, dict) and block.get("type") == "text"
+            block.get("text", "") for block in raw if isinstance(block, dict) and block.get("type") == "text"
         )
         return joined or str(raw)
     return str(raw)
@@ -174,6 +193,7 @@ async def stream_chat(
     session_id: str | None = None,
     config: Mapping[str, Any] | None = None,
     preferences: ChatPreferences | None = None,
+    liturgical_context: dict[str, Any] | None = None,
 ) -> AsyncIterator[tuple[object, dict[str, Any]]]:
     """Stream one graph run as native LangGraph ``(chunk, metadata)`` tuples.
 
@@ -187,6 +207,13 @@ async def stream_chat(
     state: dict[str, Any] = {"messages": to_langchain_messages(messages, preferences)}
     if session_id is not None:
         state["session_id"] = session_id
+    from .context import parse_liturgical_context
+
+    context = parse_liturgical_context(liturgical_context)
+    if context:
+        state["liturgical_context"] = context
+    if preferences is not None:
+        state["preference_overrides"] = preferences.model_dump(exclude_none=True)
     invocation_config = {"recursion_limit": RECURSION_LIMIT, **(config or {})}
     async with asyncio.timeout(get_chat_timeout_seconds()):
         async for chunk, metadata in graph.astream(state, config=invocation_config, stream_mode="messages"):

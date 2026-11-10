@@ -25,7 +25,7 @@ packages/prete-chat/
 ## Running
 
 ```bash
-# Whole stack including agents (from the repository root)
+# Base stack plus native UI overlay (from the repository root)
 docker compose -f docker-compose.yml -f deploy/chainlit/docker-compose.chainlit.yml up -d --build
 
 # Native UI
@@ -44,6 +44,8 @@ open http://localhost:3003
 | `DATABASE_URL` | `postgresql+asyncpg://…` enables persistence **and** login; anything else keeps POC mode (no history, no auth) |
 | `CHAINLIT_AUTH_SECRET` | signs the session cookie; required with persistence (`openssl rand -hex 32`) |
 | `CHAINLIT_URL` | public URL of the native UI (cookies, redirects) |
+| `OAUTH_GOOGLE_CLIENT_ID` / `OAUTH_GOOGLE_CLIENT_SECRET` | optional Google login; configure both and the email invitation list |
+| `PRETE_CHAT_GOOGLE_ALLOWED_EMAILS` | comma-separated explicit invited Google emails; denies all when empty |
 | `LOG_LEVEL` / `LOG_JSON_FORMAT` | honoured here (`configure_logging()` is called at startup) |
 
 ## Persistence and users
@@ -54,8 +56,11 @@ layer in the service's own PostgreSQL database (schema:
 orchestrator core stays stateless: only user/assistant text is reconstructed as
 model context on resume; tool steps, notices and the welcome message never are.
 
-Accounts are operator-provisioned (Chainlit has no stock signup), with bcrypt
-hashes (cost 10) in the Chainlit user metadata:
+Password accounts are operator-provisioned, with bcrypt hashes (cost 10) in the
+Chainlit user metadata. Optional Google login creates an account on the first
+allowed sign-in; setup and account linking are documented in
+[`deploy/chainlit/README.md`](../../deploy/chainlit/README.md#optional-google-login).
+Google uses the same normalized email identity and preserves password access.
 
 ```bash
 uv run python scripts/create_user.py --email don@example.com --name "Don Mario"
@@ -64,6 +69,15 @@ uv run python scripts/create_user.py --email don@example.com --name "Don Mario"
 The command runs inside the service container (the database publishes no port);
 the operator procedure — interactive and non-interactive forms, semantics and
 verification query — lives in `deploy/chainlit/README.md` → Users.
+
+The bcrypt `password_hash` is persisted server-side in user metadata. The
+`SerializedSQLAlchemyDataLayer.get_user()` getter is a public/session-safe read
+that strips `password_hash`; `get_user_for_auth()` is the dedicated raw,
+auth-only read used by the password verification callback. Keep these getters
+separate: Chainlit reloads the persisted user when resolving authenticated
+sessions and serving `GET /user`. Returning raw metadata from the public getter
+would expose the credential verifier through session metadata or `/user`;
+passing it into the session user would also expose it in the JWT.
 
 ## Branding and language
 
@@ -104,3 +118,56 @@ typed operation, the adapter composes the Italian user turn — "Accorcia l'ulti
 omelia, ..." — and re-enters the normal run path, so the model sees plain prose
 and the history stays coherent. Actions run inside Chainlit's action request,
 not the message task, so the Stop button does not cancel them.
+
+## Progress and answer ordering
+
+While the graph works, a transient Italian status identifies waiting/tool work.
+It is never stored as conversation content. The answer is created at the first
+nonblank token, with a stable timestamp, so tool-first execution displays tool
+steps before prose. Leading whitespace is buffered rather than showing an empty
+bubble. Refinement actions appear only after a successful, nonblank completion.
+Errors and cancellation preserve partial generated text and show a notice that
+is excluded from the model-visible resumed history. A zero-text response is
+reported explicitly. Tool labels describe execution, not private model reasoning.
+
+
+### Resumed homily context and callback loops
+
+Successful homily tool results supply validated ISO date/occasion metadata on
+assistant steps. Resume reconstructs that context, including successful tool
+steps in older threads; it never infers a date from generated prose. A separate
+system context accompanies the next invocation. The core also pins refinement
+tool execution to that identity and fetches correct readings on mismatch. A user
+request for a different date/celebration uses new homily generation. The core
+retains no conversation state between requests.
+
+Tracing callbacks and progress updates run on the UI event loop even when
+LangChain invokes them from a worker loop. SQL execution similarly returns to
+the first server-query loop owning the pool and serialization lock. Transient
+progress remains excluded from persisted messages.
+
+
+### Authoring profile across revisions
+
+The app uses custom `homily_preferences` for explicit settings overrides and a
+separate `displayed_settings` snapshot. Chainlit's reserved `chat_settings` key
+contains committed widget values, including defaults; it is never used as proof
+that the user selected a preference. Controls are synchronized from the last
+successful homily profile without creating explicit overrides. Changing only tone
+does not implicitly select the default adult audience.
+
+Successful tool inputs supply validated audience/tone metadata alongside the
+liturgical identity. Refinement preserves that profile by default, applies explicit
+UI changes, then applies current textual changes via the optional internal tool
+parameter `preference_changes`. The core keeps no cross-request state and A2A
+contracts are unchanged. Only a successful tool can update the homily profile.
+
+Older threads recover preferences from their latest successful generation and
+avoid applying legacy refinement defaults. Historical explicit changes that were
+not recorded separately cannot be distinguished perfectly; new assistant metadata
+and explicit-change inputs remove this ambiguity for subsequent turns.
+
+See the [Chainlit session reference](https://github.com/chainlit/docs/blob/main/concepts/user-session.mdx)
+and [ChatSettings reference](https://github.com/chainlit/docs/blob/main/api-reference/chat-settings.mdx)
+for reserved keys and widget/session behavior; the installed2.12 implementation
+was also inspected for this integration.

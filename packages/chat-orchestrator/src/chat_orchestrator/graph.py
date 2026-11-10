@@ -5,6 +5,7 @@ Builds the LangGraph state graph that manages conversation flow
 and coordinates tool execution.
 """
 
+import json
 from typing import Literal
 
 from langchain_core.messages import (
@@ -45,7 +46,6 @@ TOOLS_REGISTRY = {
 _graph = None
 
 
-
 async def agent_node(state: ChatState) -> dict:
     """
     Agent node: calls LLM with tools bound. LLM decides whether to use tools.
@@ -61,10 +61,7 @@ async def agent_node(state: ChatState) -> dict:
             error=str(e),
             exc_info=True,
         )
-        raise AgentGraphException(
-            message=f"Failed to initialize LLM: {str(e)}",
-            agent_name="chat_orchestrator"
-        ) from e
+        raise AgentGraphException(message=f"Failed to initialize LLM: {str(e)}", agent_name="chat_orchestrator") from e
 
     llm_with_tools = llm.bind_tools(list(TOOLS_REGISTRY.values()))
     messages = [SystemMessage(content=SYSTEM_PROMPT)] + state["messages"]
@@ -86,10 +83,7 @@ async def agent_node(state: ChatState) -> dict:
             error=str(e),
             exc_info=True,
         )
-        raise AgentGraphException(
-            message=f"Agent execution failed: {str(e)}",
-            agent_name="chat_orchestrator"
-        ) from e
+        raise AgentGraphException(message=f"Agent execution failed: {str(e)}", agent_name="chat_orchestrator") from e
 
 
 async def tools_node(state: ChatState) -> dict:
@@ -102,9 +96,38 @@ async def tools_node(state: ChatState) -> dict:
     if not hasattr(last_message, "tool_calls") or not last_message.tool_calls:
         return {"messages": []}
 
+    context = state.get("liturgical_context")
+    overrides = dict(state.get("preference_overrides") or {})
     for tool_call in last_message.tool_calls:
         tool_name = tool_call["name"]
-        tool_args = tool_call.get("args", {})
+        tool_args = dict(tool_call.get("args", {}))
+        if tool_name == "refine_homily" and context:
+            # Refinement edits the existing homily. A different date/occasion is
+            # a new generation, never an implicit mutation of the old context.
+            from .tools import _map_liturgical_data, _parse_llm_json
+
+            try:
+                raw_data = tool_args.get("liturgical_data", "{}")
+                supplied = _parse_llm_json(raw_data) if isinstance(raw_data, str) else {}
+                mapped = _map_liturgical_data(supplied) if isinstance(supplied, dict) else {}
+            except (ValueError, TypeError, AttributeError):
+                mapped = {}
+            if mapped.get("date") != context["date"] or tool_args.get("occasion") != context["occasion"]:
+                # Discard mismatched readings so the specialist fetches the
+                # pinned date rather than relabelling another day's passages.
+                tool_args["liturgical_data"] = json.dumps(context)
+                tool_args["occasion"] = context["occasion"]
+
+        if tool_name == "refine_homily":
+            from .context import json_object, stable_preferences
+
+            supplied_preferences = json_object(tool_args.get("preferences") or {}) or {}
+            pinned = stable_preferences((context or {}).get("preferences"))
+            # Always pin, including malformed/defaultable model snapshots.
+            # Current textual changes are applied last by the tool wrapper.
+            supplied_preferences = {**supplied_preferences, **pinned, **overrides}
+            if supplied_preferences:
+                tool_args["preferences"] = json.dumps(supplied_preferences)
 
         logger.debug("Executing tool", tool_name=tool_name, tool_args=tool_args)
 
@@ -127,11 +150,34 @@ async def tools_node(state: ChatState) -> dict:
             logger.error("Unknown tool requested", tool_name=tool_name)
             raise ToolNotFoundException(tool_name=tool_name)
 
-        tool_messages.append(
-            ToolMessage(content=str(result), tool_call_id=tool_call["id"], name=tool_name)
-        )
+        if (
+            tool_name in {"generate_homily", "refine_homily"}
+            and isinstance(result, dict)
+            and result.get("status") == "success"
+            and not result.get("error")
+        ):
+            data = result.get("data")
+            homily = data.get("homily") if isinstance(data, dict) else None
+            if isinstance(homily, dict):
+                from .context import effective_preferences, parse_liturgical_context
 
-    return {"messages": tool_messages}
+                updated = parse_liturgical_context(
+                    {
+                        "date": homily.get("liturgical_date"),
+                        "occasion": homily.get("occasion"),
+                        "preferences": effective_preferences(tool_args),
+                    }
+                )
+                if updated:
+                    context = updated
+                    profile = context.get("preferences", {})
+                    overrides = {
+                        key: value for key, value in overrides.items() if key not in profile or profile[key] == value
+                    }
+
+        tool_messages.append(ToolMessage(content=str(result), tool_call_id=tool_call["id"], name=tool_name))
+
+    return {"messages": tool_messages, "liturgical_context": context, "preference_overrides": overrides}
 
 
 def should_continue(state: ChatState) -> Literal["tools", "end"]:
