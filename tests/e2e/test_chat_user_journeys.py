@@ -18,7 +18,7 @@ MODEL = "prete-a-porter"
 
 @pytest.fixture(scope="session")
 def running_stack():
-    with DockerCompose(filepath=str(E2E_DIR), compose_file_name="compose.yml", build=True) as compose:
+    with DockerCompose(context=str(E2E_DIR), compose_file_name="compose.yml", build=True) as compose:
         def url(service, port):
             host = compose.get_service_host(service, port)
             if host in ("0.0.0.0", "::", None):
