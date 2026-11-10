@@ -1,0 +1,4 @@
+# E2E runner only; application dependencies are built from its UV lock in Docker.
+pytest>=8,<10
+httpx>=0.25,<1
+testcontainers>=4.13,<5
