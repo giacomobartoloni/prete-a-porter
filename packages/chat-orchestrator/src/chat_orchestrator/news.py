@@ -61,7 +61,9 @@ async def search_news(query: str, days_back: int = 7, max_results: int = 5, coun
     }
     try:
         async with httpx.AsyncClient(timeout=15.0) as client:
-            response = await client.post("https://api.tavily.com/search", json=payload)
+            # Allow an isolated HTTP Tavily double in end-to-end environments.
+            # The production default remains the official HTTPS endpoint.
+            response = await client.post(os.getenv("TAVILY_API_URL", "https://api.tavily.com/search"), json=payload)
             response.raise_for_status()
             data = response.json()
     except (httpx.HTTPError, ValueError) as exc:
