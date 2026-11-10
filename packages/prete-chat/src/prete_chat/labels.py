@@ -20,6 +20,7 @@ TOOL_STEP_LABELS: dict[str, str] = {
     "get_liturgical_lectionary": "Cerco le opzioni del lezionario",
     "generate_homily": "Preparo l'omelia",
     "refine_homily": "Rivedo l'omelia",
+    "search_news": "Cerco notizie recenti",
 }
 
 
