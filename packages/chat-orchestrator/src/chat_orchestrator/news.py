@@ -5,10 +5,27 @@ before invoking search_news.
 """
 import os
 from datetime import datetime, timedelta, timezone
+from email.utils import parsedate_to_datetime
 from urllib.parse import urlparse
 
 import httpx
 from langchain_core.tools import tool
+
+
+def _published_at(value: object) -> datetime | None:
+    """Parse Tavily news dates in ISO, date-only or RFC 2822 format."""
+    if not isinstance(value, str) or not value.strip():
+        return None
+    try:
+        date = datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
+    except ValueError:
+        try:
+            date = parsedate_to_datetime(value.strip())
+        except (ValueError, TypeError, IndexError, OverflowError):
+            return None
+    if date.tzinfo is None:
+        date = date.replace(tzinfo=timezone.utc)
+    return date.astimezone(timezone.utc)
 
 
 @tool
@@ -50,31 +67,35 @@ async def search_news(query: str, days_back: int = 7, max_results: int = 5, coun
     except (httpx.HTTPError, ValueError) as exc:
         return {"error": f"Ricerca notizie non disponibile: {type(exc).__name__}", "articles": []}
 
+    if not isinstance(data, dict) or not isinstance(data.get("results"), list):
+        return {"error": "Risposta non valida dal servizio di notizie.", "articles": []}
+
     articles = []
     seen = set()
-    cutoff = datetime.now(timezone.utc) - timedelta(days=days_back)
-    for item in data.get("results", []):
-        url = item.get("url", "")
-        parsed = urlparse(url)
-        if parsed.scheme != "https" or not parsed.netloc or url in seen:
+    now = datetime.now(timezone.utc)
+    cutoff = now - timedelta(days=days_back)
+    for item in data["results"]:
+        # One malformed record must not abort valid siblings.
+        if not isinstance(item, dict):
             continue
-        published = item.get("published_date") or item.get("published_at")
-        if not published:
-            continue  # Do not present undated stories as recent news.
+        url = item.get("url")
+        if not isinstance(url, str):
+            continue
         try:
-            date = datetime.fromisoformat(published.replace("Z", "+00:00"))
-            if date.tzinfo is None:
-                date = date.replace(tzinfo=timezone.utc)
-            if date < cutoff or date > datetime.now(timezone.utc) + timedelta(days=1):
-                continue
-        except (ValueError, TypeError):
+            parsed = urlparse(url)
+        except ValueError:
+            continue
+        if parsed.scheme != "https" or not parsed.hostname or url in seen:
+            continue
+        date = _published_at(item.get("published_date") or item.get("published_at"))
+        if date is None or not cutoff <= date <= now + timedelta(days=1):
             continue
         seen.add(url)
         articles.append({
-            "title": str(item.get("title", ""))[:300],
+            "title": str(item.get("title") or "")[:300],
             "source": parsed.netloc,
             "published_at": date.date().isoformat(),
             "url": url,
-            "summary": str(item.get("content", ""))[:800],
+            "summary": str(item.get("content") or "")[:800],
         })
     return {"query": query, "articles": articles[:max_results], "note": "Verificare le fonti originali prima di citare le notizie nell'omelia."}

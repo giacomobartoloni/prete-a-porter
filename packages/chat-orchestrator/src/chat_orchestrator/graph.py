@@ -6,6 +6,7 @@ and coordinates tool execution.
 """
 
 import json
+import re
 from typing import Literal
 
 from langchain_core.messages import (
@@ -89,29 +90,57 @@ async def agent_node(state: ChatState) -> dict:
 
 
 def _news_search_confirmed(state: ChatState) -> bool:
-    """Require a prior assistant permission request and an affirmative user reply.
+    """Require approval of an actual search invitation in the last assistant question.
 
-    This works with the stateless full-history API: no server-side confirmation state.
+    Matching a substring anywhere in the turn can authorize unrelated or
+    negated questions. This deterministic check runs at the execution boundary.
     """
     from langchain_core.messages import AIMessage, HumanMessage
 
     messages = state.get("messages", [])
-    last_user_index = next((i for i in range(len(messages) - 1, -1, -1)
-                            if isinstance(messages[i], HumanMessage)), -1)
+    last_user_index = next(
+        (i for i in range(len(messages) - 1, -1, -1) if isinstance(messages[i], HumanMessage)),
+        -1,
+    )
     if last_user_index < 1:
         return False
-    reply = str(messages[last_user_index].content).strip().lower()
-    affirmations = {"sì", "si", "yes", "ok", "certo", "procedi", "confermo",
-                    "sì, procedi", "si, procedi", "sì, cerca", "si, cerca",
-                    "va bene", "autorizzo la ricerca"}
-    if reply.rstrip(".!") not in affirmations:
-        return False
     previous = messages[last_user_index - 1]
+    current = messages[last_user_index]
     if not isinstance(previous, AIMessage):
         return False
-    proposal = str(previous.content).lower()
-    return "vuoi che cerchi online" in proposal or "posso cercare online" in proposal
+    if not isinstance(previous.content, str) or not isinstance(current.content, str):
+        return False
 
+    # Short affirmations approve only the immediately preceding question.
+    questions = re.findall(r"[^.!?]*\?", previous.content)
+    if not questions:
+        return False
+    question = questions[-1].strip().casefold()
+    if re.search(r"\b(?:non|senza|evita|evitare|no)\b", question):
+        return False
+    if not re.fullmatch(
+        r"(?:vuoi che (?:io )?cerchi online|posso cercare online)(?:\s+[^?]*)?\?",
+        question,
+    ):
+        return False
+
+    reply = re.sub(r"\s+", " ", current.content.casefold()).strip().rstrip(".!?").strip()
+    if re.search(r"\b(?:no|non|senza|annulla|evita|rinuncio|rifiuto)\b", reply):
+        return False
+    if re.fullmatch(
+        r"(?:sì|si|yes|ok|certo|va bene|confermo|procedi|autorizzo la ricerca)"
+        r"(?:\s*,\s*(?:grazie(?: mille)?|per favore|pure))?",
+        reply,
+    ):
+        return True
+    # Permit an explicit search command with an affirmative or polite prefix.
+    return re.fullmatch(
+        r"(?:(?:sì|si|yes|ok|certo|va bene)\s*[,! ]+"
+        r"(?:(?:grazie|per favore)\s*,?\s*)?)?"
+        r"(?:cerca(?: pure)?|procedi(?: pure)?|puoi cercare|fai(?: pure)? la ricerca)"
+        r"(?:\s+.+)?",
+        reply,
+    ) is not None
 
 async def tools_node(state: ChatState) -> dict:
     """
