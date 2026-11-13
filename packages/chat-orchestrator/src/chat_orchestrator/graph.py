@@ -125,7 +125,13 @@ def _news_search_confirmed(state: ChatState) -> bool:
         return False
 
     reply = re.sub(r"\s+", " ", current.content.casefold()).strip().rstrip(".!?").strip()
-    if re.search(r"\b(?:no|non|senza|annulla|evita|rinuncio|rifiuto)\b", reply):
+    # Reject search cancellations without treating ordinary query constraints
+    # (for example, "senza dettagli cruenti") as a refusal.
+    explicitly_declines_search = re.search(
+        r"\b(?:non cercare online|non fare la ricerca|procedi senza notizie)\b",
+        reply,
+    ) or reply.endswith("senza notizie")
+    if explicitly_declines_search:
         return False
     if re.fullmatch(
         r"(?:sì|si|yes|ok|certo|va bene|confermo|procedi|autorizzo la ricerca)"

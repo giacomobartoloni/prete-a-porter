@@ -66,7 +66,10 @@ def test_no_search_without_unequivocal_consent(proposal, reply):
     ("Non posso cercare online. Vuoi procedere senza notizie?", "Sì", 0),
     ("Posso cercare online notizie sulla pace. Vuoi che cerchi online?", "Sì, grazie", 1),
     ("Posso cercare online notizie sulla pace. Vuoi che cerchi online?", "Sì, cerca notizie sulla pace", 1),
+    ("Posso cercare online notizie sulla pace. Vuoi che cerchi online?", "Sì, cerca notizie senza dettagli cruenti", 1),
+    ("Posso cercare online notizie sulla pace. Vuoi che cerchi online?", "Sì, cerca notizie sul rifiuto della guerra", 1),
     ("Vuoi che cerchi online notizie sulla pace?", "No, grazie", 0),
+    ("Vuoi che cerchi online notizie sulla pace?", "Sì, ma procedi senza notizie", 0),
 ])
 async def test_confirmation_enforced_at_news_tool_boundary(
     monkeypatch, proposal, reply, expected_calls,
