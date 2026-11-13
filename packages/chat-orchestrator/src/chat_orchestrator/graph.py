@@ -6,6 +6,7 @@ and coordinates tool execution.
 """
 
 import json
+import re
 from typing import Literal
 
 from langchain_core.messages import (
@@ -22,6 +23,7 @@ from .exceptions import (
     ToolNotFoundException,
 )
 from .state import ChatState
+from .news import search_news
 from .tools import (
     calculate_date,
     generate_homily,
@@ -41,6 +43,7 @@ TOOLS_REGISTRY = {
     "get_liturgical_lectionary": get_liturgical_lectionary,
     "generate_homily": generate_homily,
     "refine_homily": refine_homily,
+    "search_news": search_news,
 }
 
 _graph = None
@@ -85,6 +88,65 @@ async def agent_node(state: ChatState) -> dict:
         )
         raise AgentGraphException(message=f"Agent execution failed: {str(e)}", agent_name="chat_orchestrator") from e
 
+
+def _news_search_confirmed(state: ChatState) -> bool:
+    """Require approval of an actual search invitation in the last assistant question.
+
+    Matching a substring anywhere in the turn can authorize unrelated or
+    negated questions. This deterministic check runs at the execution boundary.
+    """
+    from langchain_core.messages import AIMessage, HumanMessage
+
+    messages = state.get("messages", [])
+    last_user_index = next(
+        (i for i in range(len(messages) - 1, -1, -1) if isinstance(messages[i], HumanMessage)),
+        -1,
+    )
+    if last_user_index < 1:
+        return False
+    previous = messages[last_user_index - 1]
+    current = messages[last_user_index]
+    if not isinstance(previous, AIMessage):
+        return False
+    if not isinstance(previous.content, str) or not isinstance(current.content, str):
+        return False
+
+    # Short affirmations approve only the immediately preceding question.
+    questions = re.findall(r"[^.!?]*\?", previous.content)
+    if not questions:
+        return False
+    question = questions[-1].strip().casefold()
+    if re.search(r"\b(?:non|senza|evita|evitare|no)\b", question):
+        return False
+    if not re.fullmatch(
+        r"(?:vuoi che (?:io )?cerchi online|posso cercare online)(?:\s+[^?]*)?\?",
+        question,
+    ):
+        return False
+
+    reply = re.sub(r"\s+", " ", current.content.casefold()).strip().rstrip(".!?").strip()
+    # Reject search cancellations without treating ordinary query constraints
+    # (for example, "senza dettagli cruenti") as a refusal.
+    explicitly_declines_search = re.search(
+        r"\b(?:non cercare online|non fare la ricerca|procedi senza notizie)\b",
+        reply,
+    ) or reply.endswith("senza notizie")
+    if explicitly_declines_search:
+        return False
+    if re.fullmatch(
+        r"(?:sì|si|yes|ok|certo|va bene|confermo|procedi|autorizzo la ricerca)"
+        r"(?:\s*,\s*(?:grazie(?: mille)?|per favore|pure))?",
+        reply,
+    ):
+        return True
+    # Permit an explicit search command with an affirmative or polite prefix.
+    return re.fullmatch(
+        r"(?:(?:sì|si|yes|ok|certo|va bene)\s*[,! ]+"
+        r"(?:(?:grazie|per favore)\s*,?\s*)?)?"
+        r"(?:cerca(?: pure)?|procedi(?: pure)?|puoi cercare|fai(?: pure)? la ricerca)"
+        r"(?:\s+.+)?",
+        reply,
+    ) is not None
 
 async def tools_node(state: ChatState) -> dict:
     """
@@ -132,6 +194,12 @@ async def tools_node(state: ChatState) -> dict:
         logger.debug("Executing tool", tool_name=tool_name, tool_args=tool_args)
 
         func = TOOLS_REGISTRY.get(tool_name)
+        if tool_name == "search_news" and not _news_search_confirmed(state):
+            tool_messages.append(ToolMessage(
+                content="Ricerca non eseguita: chiedi prima conferma esplicita all'utente.",
+                tool_call_id=tool_call["id"], name=tool_name,
+            ))
+            continue
         if func:
             try:
                 result = await func.ainvoke(tool_args)
